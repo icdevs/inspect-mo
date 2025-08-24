@@ -1,5 +1,5 @@
 import MigrationTypes "../types";
-import D "mo:base/Debug";
+import D "mo:core/Debug";
 
 module {
   public func upgrade(prevmigration_state: MigrationTypes.State, args: MigrationTypes.Args, caller: Principal, canister: Principal): MigrationTypes.State {

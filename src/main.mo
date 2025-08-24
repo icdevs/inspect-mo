@@ -14,11 +14,11 @@ import TT "mo:timer-tool";
 import ICRC10 "mo:icrc10-mo";
 import Log "mo:stable-local-log";
 
-import Sample ".";
+import InspectMo ".";
 
 shared (deployer) persistent actor class SampleCanister<system>(
   args:?{
-    sampleArgs: ?Sample.InitArgs;
+   
     ttArgs: ?TT.InitArgList;
   }
 ) = this {
@@ -29,7 +29,7 @@ shared (deployer) persistent actor class SampleCanister<system>(
   var _owner = deployer.caller;
 
   transient let initManager = ClassPlus.ClassPlusInitializationManager(_owner, Principal.fromActor(this), true);
-  transient let sampleInitArgs = do?{args!.sampleArgs!};
+
   transient let ttInitArgs : ?TT.InitArgList = do?{args!.ttArgs!};
 
   var icrc10 = ICRC10.initCollection();
@@ -93,13 +93,26 @@ shared (deployer) persistent actor class SampleCanister<system>(
 
   transient let d = localLog().log_debug;
 
-  var sample_migration_state: Sample.State = Sample.initialState();
+  var inspector_migration_state: InspectMo.State = InspectMo.initialState();
 
-  transient let sample = Sample.Init<system>({
+  transient let inspector = InspectMo.Init<system>({
     manager = initManager;
-    initialState = sample_migration_state;
-    args = sampleInitArgs;
-    pullEnvironment = ?(func() : Sample.Environment {
+    initialState = inspector_migration_state;
+    args = ?{
+      
+      allowAnonymous = ?true ;         // Global default for anonymous access
+      defaultMaxArgSize= ?100_000;       // Global default argument size limit
+      authProvider= null;   // Permission system integration (function - not stable)
+      rateLimit= null;   // Global rate limiting
+      
+      // Query vs Update specific defaults
+      queryDefaults = null;   // Defaults for query calls
+      updateDefaults= null; // Defaults for update calls
+      
+      developmentMode = true;         // Enable relaxed rules for testing
+      auditLog = true;
+    };
+    pullEnvironment = ?(func() : InspectMo.Environment {
       {
         tt = tt();
         advanced = null; // Add any advanced options if needed
@@ -107,15 +120,15 @@ shared (deployer) persistent actor class SampleCanister<system>(
       };
     });
 
-    onInitialize = ?(func (newClass: Sample.
-    Sample) : async* () {
+    onInitialize = ?(func (newClass: InspectMo.
+    InspectMo) : async* () {
       D.print("Initializing Sample Class");
       //do any work here necessary for initialization
     });
 
-    onStorageChange = func(state: Sample.State) {
-      sample_migration_state := state;
-    }
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
   });
 
 

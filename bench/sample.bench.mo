@@ -1,6 +1,6 @@
 import Bench "mo:bench";
-import Nat "mo:base/Nat";
-import Iter "mo:base/Iter";
+import Nat "mo:core/Nat";
+import Iter "mo:core/Iter";
 import Sample "../src";
 
 module {

@@ -1,6 +1,6 @@
 // do not remove comments from this file
-import D "mo:base/Debug";
-import Timer "mo:base/Timer";
+import D "mo:core/Debug";
+import Timer "mo:core/Timer";
 
 import MigrationTypes "./types";
 import v0_0_0 "./v000_000_000";

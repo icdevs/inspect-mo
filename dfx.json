@@ -3,8 +3,23 @@
     "main": {
       "main": "./src/main.mo",
       "type": "motoko"
+    },
+    "test_canister": {
+      "main": "./src/test_canister.mo",
+      "type": "motoko"
+    },
+    "complex_test_canister": {
+      "main": "./canisters/complex_test_canister.mo",
+      "type": "motoko"
+    },
+    "complex_integration_test": {
+      "main": "./canisters/complex_integration_test.mo",
+      "type": "motoko"
+    },
+    "inspect_mo_integration": {
+      "main": "./canisters/inspect_mo_integration.mo",
+      "type": "motoko"
     }
-
   },
   "defaults": {
     "build": {

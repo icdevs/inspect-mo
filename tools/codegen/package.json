@@ -1,0 +1,25 @@
+{
+  "name": "inspect-mo-codegen",
+  "version": "1.0.0",
+  "description": "Code generation tools for InspectMo library - Candid parser approach",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "test": "jest",
+    "generate": "ts-node src/cli.ts"
+  },
+  "dependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "commander": "^11.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0"
+  },
+  "keywords": ["motoko", "internet-computer", "candid", "codegen", "inspect-mo"],
+  "author": "InspectMo Team",
+  "license": "MIT"
+}
