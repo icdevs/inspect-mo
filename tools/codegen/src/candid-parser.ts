@@ -1,5 +1,6 @@
 /**
- * Candid (.did) file parser for InspectMo code generation
+ * Enhanced Candid (.did) file parser for InspectMo code generation
+ * Supports complex types, recursive structures, and comprehensive type tracking
  */
 
 import { readFileSync } from 'fs';
@@ -8,7 +9,9 @@ import {
   CandidMethod, 
   CandidType, 
   CandidParameter, 
-  ParseResult
+  ParseResult,
+  TypeParsingContext,
+  CandidTypeDefinition
 } from './types';
 
 export function parseCandidFile(filePath: string): ParseResult {
@@ -28,6 +31,9 @@ export function parseCandidFile(filePath: string): ParseResult {
 export function parseCandidContent(content: string): ParseResult {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const typeDefinitions = new Map<string, CandidType>();
+  const missingTypes: string[] = [];
+  const recursiveTypes: string[] = [];
   
   try {
     // Remove comments and normalize whitespace
@@ -36,22 +42,59 @@ export function parseCandidContent(content: string): ParseResult {
       .replace(/\/\*[\s\S]*?\*\//g, '') // Remove block comments
       .trim();
 
-    // Parse type definitions first
-    const typeDefinitions = new Map<string, string>();
-    const typeMatches = cleanContent.matchAll(/type\s+(\w+)\s*=\s*([\s\S]*?)(?=(?:type\s+\w+|service\s*:))/g);
-    for (const match of typeMatches) {
-      const [, typeName, typeDefinition] = match;
-      typeDefinitions.set(typeName, typeDefinition.trim());
-    }
+    // Parse type definitions first with enhanced context
+    const context: TypeParsingContext = {
+      typeDefinitions,
+      currentDepth: 0,
+      maxDepth: 50, // Prevent infinite recursion
+      recursionStack: [],
+      errors,
+      warnings
+    };
 
-    // Extract service definition - handle multiline properly
-    const serviceMatch = cleanContent.match(/service\s*:\s*\{([\s\S]*)\}/);
+    parseTypeDefinitions(cleanContent, context);
+
+    // Extract service definition - handle both direct service and actor class patterns
+    let serviceMatch = cleanContent.match(/service\s*:\s*\{([\s\S]*)\}/);
+    let isActorClass = false;
+    let serviceTypeName: string | null = null;
+    
+    if (!serviceMatch) {
+      // Try actor class pattern: service : (...) -> ServiceType
+      const actorClassMatch = cleanContent.match(/service\s*:\s*\([^)]*\)\s*->\s*(\w+)/);
+      if (actorClassMatch) {
+        isActorClass = true;
+        serviceTypeName = actorClassMatch[1];
+        
+        // Find the service type definition
+        const serviceTypePattern = new RegExp(`type\\s+${serviceTypeName}\\s*=\\s*service\\s*\\{([\\s\\S]*?)\\}`, 'i');
+        const serviceTypeMatch = cleanContent.match(serviceTypePattern);
+        
+        if (serviceTypeMatch) {
+          serviceMatch = [serviceTypeMatch[0], serviceTypeMatch[1]] as RegExpMatchArray;
+        } else {
+          return {
+            success: false,
+            errors: [`Actor class service type '${serviceTypeName}' definition not found`],
+            warnings: [],
+            service: null,
+            typeDefinitions,
+            missingTypes,
+            recursiveTypes
+          };
+        }
+      }
+    }
+    
     if (!serviceMatch) {
       return {
         success: false,
         errors: ['No service definition found'],
         warnings: [],
-        service: null
+        service: null,
+        typeDefinitions,
+        missingTypes,
+        recursiveTypes
       };
     }
 
@@ -64,73 +107,44 @@ export function parseCandidContent(content: string): ParseResult {
       .filter(line => line && !line.match(/^\s*$/));
     
     for (const methodDecl of methodDeclarations) {
-      // Use a more flexible parsing approach
-      const colonIndex = methodDecl.indexOf(':');
-      if (colonIndex === -1) continue;
-      
-      const methodName = methodDecl.substring(0, colonIndex).trim();
-      const signaturePart = methodDecl.substring(colonIndex + 1).trim();
-      
-      // Check if it's a query method
-      const isQuery = signaturePart.includes('query');
-      const cleanSignature = signaturePart.replace(/\s+query\s*$/, '').trim();
-      
-      // Parse signature: (params) -> returnType
-      const arrowIndex = cleanSignature.indexOf('->');
-      if (arrowIndex === -1) continue;
-      
-      const paramsPart = cleanSignature.substring(0, arrowIndex).trim();
-      const returnPart = cleanSignature.substring(arrowIndex + 2).trim();
-      
-      // Extract parameters from (...)
-      const paramsMatch = paramsPart.match(/^\((.*)\)$/);
-      if (!paramsMatch) continue;
-      
-      const paramsStr = paramsMatch[1].trim();
-      const parameters: CandidParameter[] = [];
-      
-      if (paramsStr) {
-        // Split parameters, being careful with nested structures
-        const paramParts = splitParameters(paramsStr);
-        
-        for (const param of paramParts) {
-          const colonIndex = param.indexOf(':');
-          if (colonIndex > 0) {
-            // Named parameter: name: type
-            const paramName = param.substring(0, colonIndex).trim();
-            const paramType = param.substring(colonIndex + 1).trim();
-            parameters.push({
-              name: paramName,
-              type: parseType(paramType, typeDefinitions)
-            });
-          } else {
-            // Unnamed parameter: just type
-            parameters.push({
-              name: null,
-              type: parseType(param.trim(), typeDefinitions)
-            });
-          }
-        }
+      const method = parseMethodDeclaration(methodDecl, context);
+      if (method) {
+        methods.push(method);
       }
-
-      methods.push({
-        name: methodName,
-        parameters,
-        returnType: parseType(returnPart.replace(/^\(|\)$/g, '').trim(), typeDefinitions), // Remove outer parentheses if present
-        isQuery,
-        annotations: []
-      });
     }
 
     if (methods.length === 0) {
       warnings.push('No methods found in service definition');
     }
 
+    // Track missing types
+    const allReferencedTypes = new Set<string>();
+    methods.forEach(method => {
+      collectReferencedTypes(method.returnType, allReferencedTypes);
+      method.parameters.forEach(param => collectReferencedTypes(param.type, allReferencedTypes));
+    });
+
+    for (const typeName of allReferencedTypes) {
+      if (!typeDefinitions.has(typeName) && !isBuiltinType(typeName)) {
+        missingTypes.push(typeName);
+      }
+    }
+
     return {
       success: true,
-      errors: [],
-      warnings,
-      service: { methods, types: [] }
+      errors: context.errors,
+      warnings: context.warnings,
+      service: { 
+        methods, 
+        types: Array.from(typeDefinitions.entries()).map(([name, type]) => ({ name, type })),
+        typeDefinitions,
+        complexTypes: Array.from(allReferencedTypes),
+        isActorClass,
+        serviceTypeName
+      },
+      typeDefinitions,
+      missingTypes,
+      recursiveTypes
     };
 
   } catch (error) {
@@ -138,7 +152,10 @@ export function parseCandidContent(content: string): ParseResult {
       success: false,
       errors: [`Parse error: ${error}`],
       warnings: [],
-      service: null
+      service: null,
+      typeDefinitions,
+      missingTypes,
+      recursiveTypes
     };
   }
 }
@@ -305,4 +322,330 @@ function parseType(typeStr: string, typeDefinitions?: Map<string, string>): Cand
   // Default fallback
   console.log(`Unknown type: ${trimmed}, defaulting to text`);
   return { kind: 'text' };
+}
+
+/**
+ * Enhanced type parsing with context support
+ */
+function parseTypeWithContext(typeStr: string, context: TypeParsingContext): CandidType {
+  const trimmed = typeStr.trim();
+  
+  // Prevent infinite recursion
+  if (context.currentDepth > context.maxDepth) {
+    context.errors.push(`Maximum parsing depth exceeded for type: ${trimmed}`);
+    return { kind: 'text' };
+  }
+
+  context.currentDepth++;
+
+  try {
+    // Handle empty type (unit type)
+    if (trimmed === '' || trimmed === '()') {
+      return { kind: 'null' };
+    }
+    
+    // Handle basic types
+    const basicTypes = ['text', 'nat', 'int', 'bool', 'blob', 'principal'];
+    if (basicTypes.includes(trimmed)) {
+      return { kind: trimmed as any };
+    }
+    
+    // Handle vec types
+    const vecMatch = trimmed.match(/^vec\s+(.+)$/);
+    if (vecMatch) {
+      return {
+        kind: 'vec',
+        inner: parseTypeWithContext(vecMatch[1], context)
+      };
+    }
+    
+    // Handle opt types
+    const optMatch = trimmed.match(/^opt\s+(.+)$/);
+    if (optMatch) {
+      return {
+        kind: 'opt',
+        inner: parseTypeWithContext(optMatch[1], context)
+      };
+    }
+
+    // Handle record types with improved parsing
+    const recordMatch = trimmed.match(/^record\s*\{([\s\S]*)\}$/);
+    if (recordMatch) {
+      const fields: { name: string | null; type: CandidType; index?: number }[] = [];
+      const fieldContent = recordMatch[1].trim();
+      
+      if (fieldContent) {
+        const fieldParts = splitParameters(fieldContent);
+        
+        for (let i = 0; i < fieldParts.length; i++) {
+          const field = fieldParts[i].trim();
+          const colonIndex = field.indexOf(':');
+          
+          if (colonIndex > 0) {
+            const fieldName = field.substring(0, colonIndex).trim();
+            const fieldType = field.substring(colonIndex + 1).trim();
+            fields.push({
+              name: fieldName,
+              type: parseTypeWithContext(fieldType, context),
+              index: i
+            });
+          } else {
+            // Unnamed field: just type (tuple-like record)
+            fields.push({
+              name: null,
+              type: parseTypeWithContext(field, context),
+              index: i
+            });
+          }
+        }
+      }
+      
+      return {
+        kind: 'record',
+        fields
+      };
+    }
+    
+    // Handle variant types
+    const variantMatch = trimmed.match(/^variant\s*\{([\s\S]*)\}$/);
+    if (variantMatch) {
+      const options: { name: string; type: CandidType | null; index?: number }[] = [];
+      const variantContent = variantMatch[1].trim();
+      
+      if (variantContent) {
+        const optionParts = splitParameters(variantContent);
+        
+        for (let i = 0; i < optionParts.length; i++) {
+          const option = optionParts[i].trim();
+          const colonIndex = option.indexOf(':');
+          
+          if (colonIndex > 0) {
+            const optionName = option.substring(0, colonIndex).trim();
+            const optionType = option.substring(colonIndex + 1).trim();
+            options.push({
+              name: optionName,
+              type: parseTypeWithContext(optionType, context),
+              index: i
+            });
+          } else {
+            // Option without type
+            options.push({
+              name: option.trim(),
+              type: null,
+              index: i
+            });
+          }
+        }
+      }
+      
+      return {
+        kind: 'variant',
+        options
+      };
+    }
+
+    // Handle tuple types (anonymous records)
+    const tupleMatch = trimmed.match(/^record\s*\{\s*([^:}]+(?:\s*;\s*[^:}]+)*)\s*\}$/);
+    if (tupleMatch) {
+      const tupleTypes: CandidType[] = [];
+      const typeContent = tupleMatch[1].trim();
+      const typeParts = typeContent.split(';').map(part => part.trim());
+      
+      for (const typeStr of typeParts) {
+        tupleTypes.push(parseTypeWithContext(typeStr, context));
+      }
+      
+      return {
+        kind: 'tuple',
+        tupleTypes
+      };
+    }
+    
+    // Handle function types
+    if (trimmed.includes('->')) {
+      return { kind: 'func' };
+    }
+    
+    // Check for custom/named types in type definitions
+    if (context.typeDefinitions.has(trimmed)) {
+      const existingType = context.typeDefinitions.get(trimmed)!;
+      
+      // Check for circular reference
+      if (context.recursionStack.includes(trimmed)) {
+        context.warnings.push(`Circular reference detected for type: ${trimmed}`);
+        return { 
+          kind: 'recursive',
+          name: trimmed,
+          referenceName: trimmed
+        };
+      }
+      
+      return existingType;
+    }
+    
+    // Handle known Result types
+    if (trimmed.startsWith('Result')) {
+      return { 
+        kind: 'variant',
+        options: [
+          { name: 'ok', type: { kind: 'text' } },
+          { name: 'err', type: { kind: 'text' } }
+        ]
+      };
+    }
+    
+    // Custom/named type not yet defined
+    context.warnings.push(`Unknown type referenced: ${trimmed}`);
+    return { 
+      kind: 'custom',
+      name: trimmed
+    };
+
+  } finally {
+    context.currentDepth--;
+  }
+}
+
+/**
+ * Parse type definitions from the Candid content
+ */
+function parseTypeDefinitions(content: string, context: TypeParsingContext): void {
+  // Improved regex that properly matches complete type definitions
+  const typeRegex = /type\s+(\w+)\s*=\s*((?:record\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|variant\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|[^;]+))\s*;/g;
+  
+  let match;
+  while ((match = typeRegex.exec(content)) !== null) {
+    const [, typeName, typeDefinition] = match;
+    const cleanDefinition = typeDefinition.trim();
+    
+    try {
+      // Check for recursive reference
+      if (context.recursionStack.includes(typeName)) {
+        context.warnings.push(`Recursive type detected: ${typeName}`);
+        context.typeDefinitions.set(typeName, { kind: 'recursive', name: typeName, referenceName: typeName });
+        continue;
+      }
+
+      context.recursionStack.push(typeName);
+      const parsedType = parseTypeWithContext(cleanDefinition, context);
+      context.typeDefinitions.set(typeName, parsedType);
+      context.recursionStack.pop();
+      
+    } catch (error) {
+      context.errors.push(`Failed to parse type ${typeName}: ${error}`);
+    }
+  }
+}
+
+/**
+ * Parse a method declaration
+ */
+function parseMethodDeclaration(methodDecl: string, context: TypeParsingContext): CandidMethod | null {
+  try {
+    // Use a more flexible parsing approach
+    const colonIndex = methodDecl.indexOf(':');
+    if (colonIndex === -1) return null;
+    
+    const methodName = methodDecl.substring(0, colonIndex).trim();
+    const signaturePart = methodDecl.substring(colonIndex + 1).trim();
+    
+    // Check if it's a query method
+    const isQuery = signaturePart.includes('query');
+    const cleanSignature = signaturePart.replace(/\s+query\s*$/, '').trim();
+    
+    // Parse signature: (params) -> returnType
+    const arrowIndex = cleanSignature.indexOf('->');
+    if (arrowIndex === -1) return null;
+    
+    const paramsPart = cleanSignature.substring(0, arrowIndex).trim();
+    const returnPart = cleanSignature.substring(arrowIndex + 2).trim();
+    
+    // Extract parameters from (...)
+    const paramsMatch = paramsPart.match(/^\((.*)\)$/);
+    if (!paramsMatch) return null;
+    
+    const paramsStr = paramsMatch[1].trim();
+    const parameters: CandidParameter[] = [];
+    
+    if (paramsStr) {
+      // Split parameters, being careful with nested structures
+      const paramParts = splitParameters(paramsStr);
+      
+      for (const param of paramParts) {
+        const colonIndex = param.indexOf(':');
+        if (colonIndex > 0) {
+          // Named parameter: name: type
+          const paramName = param.substring(0, colonIndex).trim();
+          const paramType = param.substring(colonIndex + 1).trim();
+          parameters.push({
+            name: paramName,
+            type: parseTypeWithContext(paramType, context)
+          });
+        } else {
+          // Unnamed parameter: just type
+          parameters.push({
+            name: null,
+            type: parseTypeWithContext(param.trim(), context)
+          });
+        }
+      }
+    }
+
+    return {
+      name: methodName,
+      parameters,
+      returnType: parseTypeWithContext(returnPart.replace(/^\(|\)$/g, '').trim(), context), // Remove outer parentheses if present
+      isQuery,
+      annotations: []
+    };
+  } catch (error) {
+    context.errors.push(`Failed to parse method ${methodDecl}: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * Collect all type names referenced in a CandidType
+ */
+function collectReferencedTypes(type: CandidType, collector: Set<string>): void {
+  switch (type.kind) {
+    case 'custom':
+      if (type.name) {
+        collector.add(type.name);
+      }
+      break;
+    case 'vec':
+    case 'opt':
+      if (type.inner) {
+        collectReferencedTypes(type.inner, collector);
+      }
+      break;
+    case 'record':
+      if (type.fields) {
+        type.fields.forEach(field => collectReferencedTypes(field.type, collector));
+      }
+      break;
+    case 'variant':
+      if (type.options) {
+        type.options.forEach(option => {
+          if (option.type) {
+            collectReferencedTypes(option.type, collector);
+          }
+        });
+      }
+      break;
+    case 'tuple':
+      if (type.tupleTypes) {
+        type.tupleTypes.forEach(tupleType => collectReferencedTypes(tupleType, collector));
+      }
+      break;
+  }
+}
+
+/**
+ * Check if a type name is a builtin Candid type
+ */
+function isBuiltinType(typeName: string): boolean {
+  const builtins = ['text', 'nat', 'int', 'bool', 'blob', 'principal', 'null', 'empty', 'reserved'];
+  return builtins.includes(typeName.toLowerCase());
 }

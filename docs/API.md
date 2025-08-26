@@ -23,9 +23,9 @@ The library uses a sophisticated **function generator** approach to solve type e
 import InspectMo "mo:inspect-mo";
 import Debug "mo:core/Debug";
 import Error "mo:core/Error";
+import Principal "mo:core/Principal";
 
 actor MyCanister {
-
   type MessageAccessor = {
     #update_profile : (Text, Text); // (bio, displayName)
     #get_profile : (Principal);
@@ -35,40 +35,32 @@ actor MyCanister {
   private let config: InspectMo.InitArgs = {
     allowAnonymous = ?false;
     defaultMaxArgSize = ?1024 * 1024; // 1MB default
-    authProvider = null; // Your auth provider
+    authProvider = null;
     rateLimit = null;
-    queryDefaults = ?{
-      allowAnonymous = true;
-      maxArgSize = 10_000;
-      rateLimit = null;
-    };
-    updateDefaults = ?{
-      allowAnonymous = false;
-      maxArgSize = 1024 * 1024;
-      rateLimit = null;
-    };
+    queryDefaults = ?{ allowAnonymous = true; maxArgSize = 10_000; rateLimit = null };
+    updateDefaults = ?{ allowAnonymous = false; maxArgSize = 1024 * 1024; rateLimit = null };
     developmentMode = false;
     auditLog = true;
   };
 
   private let inspectMo = InspectMo.InspectMo(
-    null, // migration state
-    Principal.fromActor(MyCanister), // instantiator
-    Principal.fromActor(MyCanister), // canister principal
+    null,
+    Principal.fromActor(MyCanister),
+    Principal.fromActor(MyCanister),
     ?config,
-    null, // environment
-    func(state) {} // state update callback
+    null,
+    func(_state) {}
   );
   
   private let inspector = inspectMo.createInspector<MessageAccessor>();
 
-  // Register inspect validation using ErasedValidator pattern
+  // Register inspect validation (ErasedValidator pattern)
   let updateProfileInspectInfo = inspector.createMethodGuardInfo<(Text, Text)>(
     "update_profile",
-    false, // isQuery
+    false,
     [
-      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.0 }, null, ?5000), // bio max 5KB
-      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.1 }, ?1, ?100),   // displayName 1-100 chars
+      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.0 }, null, ?5000),
+      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.1 }, ?1, ?100),
       InspectMo.requireAuth<MessageAccessor, (Text, Text)>()
     ],
     func(msg: MessageAccessor) : (Text, Text) = switch(msg) {
@@ -80,19 +72,17 @@ actor MyCanister {
 
   // Register guard validation with business logic
   let updateProfileGuardInfo = inspector.createMethodGuardInfo<(Text, Text)>(
-    "update_profile", 
+    "update_profile",
     false,
     [
-      InspectMo.customCheck<MessageAccessor, (Text, Text)>(func(args: InspectMo.CustomCheckArgs<MessageAccessor>): InspectMo.GuardResult {
-        // Example: Check if user owns the profile based on args (MessageAccessor)
-        switch (args.args) {
-          case (#update_profile(bio, displayName)) {
-            if (args.caller == Principal.fromText("user-principal")) { #ok }
-            else { #err("You can only update your own profile") }
-          };
-          case (_) #err("Invalid message variant");
+      InspectMo.customCheck<MessageAccessor, (Text, Text)>(
+        func(args: InspectMo.CustomCheckArgs<MessageAccessor>): InspectMo.GuardResult {
+          switch (args.args) {
+            case (#update_profile(_bio, _displayName)) { #ok };
+            case (_) #err("Invalid message variant");
+          }
         }
-      })
+      )
     ],
     func(msg: MessageAccessor) : (Text, Text) = switch(msg) {
       case (#update_profile(bio, displayName)) (bio, displayName);
@@ -101,8 +91,7 @@ actor MyCanister {
   );
   inspector.guard(updateProfileGuardInfo);
 
-  public shared(msg) func update_profile(bio: Text, displayName: Text): async () { 
-    // Guard validation check
+  public shared(msg) func update_profile(bio: Text, displayName: Text): async () {
     let args : InspectMo.InspectArgs<MessageAccessor> = {
       methodName = "update_profile";
       caller = msg.caller;
@@ -113,34 +102,25 @@ actor MyCanister {
       isInspect = false;
       msg = #update_profile(bio, displayName);
     };
-    
+
     switch (inspector.guardCheck(args)) {
-      case (#ok) { /* proceed with implementation */ };
+      case (#ok) { /* implementation */ };
       case (#err(errMsg)) { throw Error.reject(errMsg) };
-    };
+    }
   };
 
-  system func inspect({
-    caller : Principal;
-    method_name : Text; 
-    arg : Blob;
-    msg : MessageAccessor;
-  }) : Bool {
+  system func inspect({ caller : Principal; method_name : Text; arg : Blob; msg : MessageAccessor; }) : Bool {
     let args : InspectMo.InspectArgs<MessageAccessor> = {
       methodName = method_name;
       caller = caller;
       arg = arg;
-      isQuery = false; // determine based on method_name if needed
+      isQuery = false;
       cycles = null;
       deadline = null;
       isInspect = true;
       msg = msg;
     };
-    
-    switch (inspector.inspectCheck(args)) {
-      case (#ok) true;
-      case (#err(_)) false;
-    }
+    switch (inspector.inspectCheck(args)) { case (#ok) true; case (#err(_)) false };
   };
 }
 ```
@@ -148,9 +128,6 @@ actor MyCanister {
 
   public shared(msg) func update_profile(bio: Text, displayName: Text): async () { 
     // Runtime validation check
-    switch (inspector.guard("update_profile", msg.caller)) {
-      case (#ok) { /* continue */ };
-      case (#err(msg)) { throw Error.reject(msg) };
     };
     
     // Implementation
@@ -160,11 +137,11 @@ actor MyCanister {
 
 ## Accessor Functions
 
-Accessor functions extract specific fields from method arguments for validation. These are typically **auto-generated** by the `inspect-mo-generate` tool from your Candid interface:
+Accessor functions extract specific fields from method arguments for validation. These are typically generated by the local codegen tool from your Candid interface:
 
 ```bash
-# Generate accessor functions and types from your canister
-npx inspect-mo-generate path/to/your/canister.did -o generated-types.mo
+# Generate accessor functions and types from your canister (from repo root)
+npx ts-node tools/codegen/src/cli.ts path/to/your/canister.did --output generated-types.mo
 ```
 
 **Generated accessor functions:**
@@ -184,42 +161,43 @@ The library solves the type erasure challenge using a **function generator** app
      msgAccessor: (T) -> M
    ) : MethodGuardInfo<T>
    ```
-
+    Accessor functions extract specific fields from method arguments for validation. These are typically **generated by the local codegen tool** from your Candid interface:
 2. **Type Erasure**: Validation logic "baked" into type-erased functions
    ```motoko
    public type ErasedValidator<T> = (InspectArgs<T>) -> Result<(), Text>
-   ```
+    # Generate accessor functions and types from your canister (from repo root)
+    npx ts-node tools/codegen/src/cli.ts path/to/your/canister.did --output generated-types.mo
 
 3. **Execution Time**: Simple function calls regardless of method-specific types
-   ```motoko
-   switch (guardInfo.validator(args)) {
-     case (#ok) { /* proceed */ };
-     case (#err(msg)) { /* handle error */ };
-   }
-   ```
-
-### Benefits
-
-- **Type Safety**: Full compile-time type checking during registration
-- **Performance**: No runtime type resolution or casting
-- **Simplicity**: Same BTree stores all methods regardless of their types
-- **Flexibility**: Each method can have completely different parameter types
-```
-
-## Validation Rules
-
+    #### DFX usage (manual)
+    There are no prebuild hooks for Motoko canisters. Keep scripts in `package.json` and invoke codegen before builds:
+    ```json
+    // package.json
+    {
+      "scripts": {
+        "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate",
+        "build": "npm run codegen && dfx build"
+      }
+    }
+    ```
 All validation rules now follow the pattern `ValidationRule<T,M>` where:
 - `T`: Message variant type (e.g., `MessageAccessor`)  
-- `M`: Method parameter type (e.g., `(Text, Text)`)
-
+    **CI/CD Integration**
+    Run codegen explicitly before builds:
+    ```yaml
+    - name: Generate helpers
+      run: npm run codegen
+    - name: Build canisters
+      run: dfx build
+    ```
 ### Text Size Validation
-```motoko
+    npx ts-node tools/codegen/src/cli.ts discover ./my-project --suggest
 // Validate bio field (first parameter) max 5KB
-InspectMo.textSize<MessageAccessor, (Text, Text)>(
+    3. **Auto-Discovery**: Use `npx ts-node tools/codegen/src/cli.ts discover . --suggest` to analyze
   func(args: (Text, Text)): Text { args.0 }, // accessor for bio receives M type
-  null,                                       // no minimum
+    # No install-hooks for Motoko canisters; use manual codegen before build
   ?5000                                      // max 5KB
-)
+        "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate"
 
 // Validate displayName field (second parameter) 1-100 chars  
 InspectMo.textSize<MessageAccessor, (Text, Text)>(
@@ -280,7 +258,6 @@ InspectMo.customCheck<MessageAccessor, (Text, Text)>(
         if (Text.size(bio) > 0 and Text.size(displayName) > 0) { #ok }
         else { #err("Bio and display name are required") }
       };
-      case (_) #err("Invalid message variant");
     }
   }
 )
@@ -381,6 +358,9 @@ actor FileUploader {
 ```
 
 ### DeFi Canister with Role-Based Access
+
+**⚠️ EXAMPLE ONLY: The RBAC integration shown is for demonstration purposes and is not production-ready.**
+
 ```motoko
 import InspectMo "mo:inspect-mo";
 import Permissions "mo:rbac";
@@ -394,6 +374,7 @@ actor DeFiCanister {
     #admin_set_fee :  Nat -> ();
   }
   
+  // NOTE: This is an example integration pattern only
   private let inspector = InspectMo.init<InspectMessage>({
     allowAnonymous = ?false;
     authProvider = ?permissions;
@@ -446,22 +427,12 @@ actor DeFiCanister {
   ]);
   public func admin_set_fee(newFee: Nat): async () {
     //must still do guard because updates via Other canisters don't go through inspect
-    switch (inspector.guardCheck("transfer", msg.caller)) {
-      case (#ok) { /* continue */ };
       case (#err(msg)) { throw Error.reject(msg) };
     };
-    // Implementation
-  };
-
   system func inspect({
     caller : Principal;
-    arg : Blob;
-    msg : InspectMessage
   }) : Bool {
     let (methodName, isQuery) = switch (msg) {
-      case (#get_balance _) { ("get_balance", true) };
-      case (#transfer _) { ("transfer", false) };
-      case (#admin_set_fee _) { ("admin_set_fee", false) };
     };
     
     let inspectArgs : InspectMo.InspectArgs = {
@@ -598,3 +569,204 @@ InspectMo.inspect(inspector, "upload", [
 ```
 
 This provides better type safety, composability, and maintainability while achieving the same security goals.
+
+## Code Generation Tool
+
+The Inspect-Mo project includes a TypeScript-based code generation tool that automates the creation of simple, type-safe validation boilerplate from Candid (.did) interface files.
+
+### Installation & Setup
+
+```bash
+# Install dependencies (run from project root)
+cd tools/codegen
+npm install
+npm run build
+```
+
+### Auto-Discovery
+
+The tool features intelligent auto-discovery that prioritizes the canonical `src/declarations` directory created by `dfx generate`:
+
+```bash
+# Discover .did files and analyze project structure
+cd tools/codegen
+npx ts-node src/cli.ts discover ../../ --suggest
+
+# Example output:
+# 📁 Found src/declarations - using as primary source for .did files
+# 📊 Project Analysis:
+#    • 3 .did file(s) found
+#    • 12 InspectMo usage(s) detected
+```
+
+**Auto-Discovery Logic:**
+1. **Primary Source**: If `src/declarations/` exists (from `dfx generate`), prioritize these canonical interface files
+2. **Fallback Sources**: Otherwise search project-wide with intelligent filtering
+3. **Smart Filtering**: Automatically excludes build artifacts:
+   - ❌ `.dfx/local/lsp/` (temporary LSP files)
+   - ❌ `constructor.did` files (usually not needed)
+   - ❌ `.mops/`, `.vessel/`, `node_modules/` (package managers)
+   - ✅ `src/declarations/*/service.did` (main interfaces)
+   - ✅ `did/` folder (explicit project interfaces)
+
+### Basic Usage
+
+```bash
+# Generate from a single .did file
+cd tools/codegen
+npx ts-node src/cli.ts generate ../../src/declarations/test_canister/test_canister.did -o ../../src/generated/test_canister-inspect.mo
+
+# Auto-discover and generate from project
+npx ts-node src/cli.ts discover ../../ --generate
+
+# Analyze existing InspectMo usage
+npx ts-node src/cli.ts discover ../../ --suggest
+```
+
+### Generated Code Structure
+
+The tool generates simple, practical Motoko modules with Args union types and accessor functions:
+
+```motoko
+/// Auto-generated InspectMo integration module
+import InspectMo "mo:inspect-mo/lib";
+import Types "./test_canister-inspect_types";
+
+
+  /// Args union type for ErasedValidator pattern
+  public type Args = {
+    #get_info: ();
+    #send_message: Text;
+  };
+
+  /// Simple accessor functions
+  public func getSendMessageMessage(args: Args): Text {
+    switch (args) {
+      case (#send_message(value)) value;
+      case (_) "";
+    };
+  };
+
+  public func getGuardedMethodData(args: Args): Text {
+    switch (args) {
+      case (#guarded_method(value)) value;
+      case (_) "";
+    };
+  };
+}
+```
+
+### Build System Integration
+```json
+// package.json
+{
+  "scripts": {
+    "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate",
+    "build": "npm run codegen && dfx build",
+    "test": "npm run codegen && mops test"
+  }
+}
+```
+
+#### Mops Integration (❌ Not Supported)
+```bash
+# mops.toml does not support prebuild hooks - manual workflow required
+npm run codegen  # Run before mops test
+mops test
+```
+
+**Limitation**: mops.toml configuration format does not support build hooks or prebuild scripts according to the [official mops documentation](https://docs.mops.one/).
+
+### Advanced Features
+
+#### Complex Type Handling
+The tool uses a delegated field extraction pattern to handle complex and recursive types:
+
+```motoko
+// Instead of automatic parsing (error-prone):
+// ❌ getField(complexRecord, "deeply.nested.field")
+
+// Uses user-controlled extraction (type-safe):
+// ✅ func(args: MyArgs): Text { args.user.profile.displayName }
+```
+
+#### Project Analysis
+```bash
+# Comprehensive project analysis
+npx ts-node tools/codegen/src/cli.ts discover ./my-project --suggest
+
+# Output includes:
+# - .did file discovery with filtering
+# - Existing InspectMo usage detection  
+# - Build system integration suggestions
+# - Missing validation opportunities
+```
+
+#### Development Workflow
+
+1. **Design Phase**: Create your canister interface (.did files)
+2. **Generate Phase**: Run `dfx generate` to create `src/declarations/`
+3. **Auto-Discovery**: Use `npx ts-node tools/codegen/src/cli.ts discover . --suggest` to analyze
+4. **Code Generation**: Generate validation boilerplate with delegated accessors
+5. **Customization**: Implement user-controlled field extraction functions
+
+#### Build System Integration
+
+The code generation tool integrates with your build system to automate InspectMo code generation:
+
+**DFX Integration (✅ Fully Supported)**
+```bash
+# Install build hooks
+// No install-hooks for Motoko canisters; use manual codegen before builds
+```
+
+Recommended: run code generation manually before builds:
+```json
+{
+  "scripts": {
+  "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate"
+  },
+  "canisters": {
+    "main": {
+  # npm run codegen
+    }
+  }
+}
+```
+
+**Mops Integration (❌ Not Supported)**
+- mops.toml does not support build hooks or prebuild scripts
+- Manual workflow required: run `npm run codegen` before `mops test`
+- See [mops documentation](https://docs.mops.one/) for confirmed limitations
+
+**CI/CD Integration**
+With DFX integration, no extra CI steps needed:
+```yaml
+# GitHub Actions - run codegen manually before build
+- name: Build canisters
+  run: dfx build  # Automatically runs npm run codegen
+```
+6. **Integration**: Add to build system for automatic regeneration
+
+### CLI Reference
+
+```bash
+# Discovery commands (run from tools/codegen directory)
+npx ts-node src/cli.ts discover <path>           # Analyze project structure
+npx ts-node src/cli.ts discover <path> --suggest # Show integration suggestions  
+npx ts-node src/cli.ts discover <path> --generate # Auto-generate
+
+# Generation commands
+npx ts-node src/cli.ts generate <did-file> -o <output>    # Single file generation
+
+# Build integration commands
+# No DFX prebuild hooks for Motoko canisters; use manual codegen commands
+npx ts-node src/cli.ts status <path>            # Check integration status
+
+# Options
+--output, -o <path>     # Output file or directory
+--suggest              # Show build integration suggestions
+--generate             # Generate code during discovery
+```
+
+The code generation tool significantly reduces the boilerplate needed to set up InspectMo validation while maintaining type safety and providing simple, practical validation code that matches your actual Candid interfaces.

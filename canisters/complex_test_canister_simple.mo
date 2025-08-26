@@ -5,7 +5,7 @@ import Debug "mo:core/Debug";
 import Result "mo:core/Result";
 import Time "mo:core/Time";
 
-actor ComplexTestCanister {
+persistent actor ComplexTestCanister {
   
   // Complex types for testing
   public type UserProfile = {

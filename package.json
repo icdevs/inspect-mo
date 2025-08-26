@@ -1,15 +1,16 @@
 {
-  "name": "motoko-build-template",
-  "version": "1.0.0",
-  "description": "This repository is a template for all canister repositories that want to support reproducible builds.",
+  "name": "inspect-mo",
+  "version": "0.1.0",
+  "description": "Secure, type-safe validation and authorization for Motoko canisters.",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate"
   },
   "type": "module",
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@dfinity/agent": "^2.4.1",
     "@dfinity/candid": "^2.4.1",

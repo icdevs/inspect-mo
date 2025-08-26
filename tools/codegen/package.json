@@ -10,16 +10,25 @@
     "generate": "ts-node src/cli.ts"
   },
   "dependencies": {
+    "@types/glob": "^9.0.0",
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
+    "commander": "^11.0.0",
+    "glob": "^11.0.3",
+    "toml": "^3.0.0",
     "ts-node": "^10.9.0",
-    "commander": "^11.0.0"
+    "typescript": "^5.0.0"
   },
   "devDependencies": {
-    "jest": "^29.0.0",
-    "@types/jest": "^29.0.0"
+    "@types/jest": "^29.0.0",
+    "jest": "^29.0.0"
   },
-  "keywords": ["motoko", "internet-computer", "candid", "codegen", "inspect-mo"],
+  "keywords": [
+    "motoko",
+    "internet-computer",
+    "candid",
+    "codegen",
+    "inspect-mo"
+  ],
   "author": "InspectMo Team",
   "license": "MIT"
 }

@@ -49,88 +49,38 @@ A declarative, type-safe library that makes implementing robust message inspecti
 - **Pre-built Rule Templates**: Common security patterns as validation functions
 - **Development Mode**: Relaxed rules for local testing
 - **Audit Logging**: Track rejected calls for security monitoring
+- **Code Generation Tool**: TypeScript-based tool for automated boilerplate generation
+- **Auto-Discovery**: Intelligent .did file discovery with `src/declarations` prioritization  
+- **Build System Integration**: Automated hooks for mops.toml and dfx.json
+- **Project Analysis**: Comprehensive analysis of existing InspectMo usage patterns
 
 ## Target API Design
 
 **ACHIEVED:** This API design has been implemented and is working!
 
-```motoko
-## Target API Design
+#### Build System Integration
 
-**ACHIEVED:** This API design has been implemented using the ErasedValidator pattern! 🎉
+DFX and Mops do not provide prebuild hooks for Motoko canisters. The supported and recommended workflow in v0.1.0 is manual code generation before building or testing.
 
-```motoko
-// Current working API - ErasedValidator pattern with type-safe validation
-import InspectMo "mo:inspect-mo";
-import Debug "mo:core/Debug";
-import Error "mo:core/Error";
+- DFX: Run codegen manually, then build: `npm run codegen && dfx build`
+- Mops: Run codegen manually before tests: `npm run codegen && mops test`
 
-actor MyCanister {
-  type MessageAccessor = {
-    #update_profile : (Text, Text); // (bio, displayName)
-    #transfer : (Principal, Nat);   // (to, amount)
-  };
+Notes:
+- dfx.json does not support a root-level scripts field nor canister-level prebuild hooks for Motoko. Keep build scripts in package.json and invoke them manually.
+- Generated Motoko files live under `src/generated/` and are not committed to version control; re-run codegen when interfaces change.
 
-  private let inspector = inspectMo.createInspector<MessageAccessor>();
+Manual usage examples:
+```bash
+# From repo root
+# Discover .did files and generate helpers into src/generated/
+npm run codegen
 
-  // Register validation using ErasedValidator pattern - types "baked in" at registration
-  let inspectInfo = inspector.createMethodGuardInfo<(Text, Text)>(
-    "update_profile",
-    false, // isQuery
-    [
-      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.0 }, null, ?5000), // bio max 5KB
-      InspectMo.textSize<MessageAccessor, (Text, Text)>(func(args: (Text, Text)): Text { args.1 }, ?1, ?100),   // name 1-100 chars
-      InspectMo.requireAuth<MessageAccessor, (Text, Text)>()
-    ],
-    func(msg: MessageAccessor) : (Text, Text) = switch(msg) {
-      case (#update_profile(bio, displayName)) (bio, displayName);
-      case (_) Debug.trap("Wrong message type");
-    }
-  );
-  inspector.inspect(inspectInfo);
+# Or invoke the CLI directly
+npx ts-node tools/codegen/src/cli.ts discover . --generate --output src/generated/
 
-  // Guard validation with business logic
-  let guardInfo = inspector.createMethodGuardInfo<(Text, Text)>(
-    "update_profile", 
-    false,
-    [
-      InspectMo.customCheck<MessageAccessor, (Text, Text)>(func(args: InspectMo.CustomCheckArgs<MessageAccessor>): InspectMo.GuardResult {
-        switch (args.args) {
-          case (#update_profile(bio, displayName)) {
-            if (permissions.owns(args.caller, displayName)) { #ok }
-            else { #err("You can only update your own profile") }
-          };
-          case (_) #err("Invalid message variant");
-        }
-      })
-    ],
-    func(msg: MessageAccessor) : (Text, Text) = switch(msg) {
-      case (#update_profile(bio, displayName)) (bio, displayName);
-      case (_) Debug.trap("Wrong message type");
-    }
-  );
-  inspector.guard(guardInfo);
-
-  public shared(msg) func update_profile(bio: Text, displayName: Text): async () {
-    let args : InspectMo.InspectArgs<MessageAccessor> = {
-      methodName = "update_profile";
-      caller = msg.caller;
-      arg = to_candid(bio, displayName);
-      isQuery = false;
-      cycles = null;
-      deadline = null;
-      isInspect = false;
-      msg = #update_profile(bio, displayName);
-    };
-    
-    switch (inspector.guardCheck(args)) {
-      case (#ok) { /* implementation */ };
-      case (#err(errMsg)) { throw Error.reject(errMsg) };
-    }
-  };
-
-  system func inspect({
-    caller : Principal;
+# Generate for a specific .did file
+npx ts-node tools/codegen/src/cli.ts <path/to/file.did> --output src/generated/<name>-inspect.mo
+```
     method_name : Text;
     arg : Blob;
     msg : MessageAccessor;
@@ -156,11 +106,17 @@ actor MyCanister {
 
 ### Key Achievements ✅
 
-- **ErasedValidator Pattern**: Solves type erasure elegantly with function generators
-- **Type Safety**: Full compile-time type checking during registration  
-- **Performance**: Zero runtime type resolution - validation logic "baked in"
-- **Flexibility**: Each method can have completely different parameter types
-- **Simplicity**: Same BTree stores all methods regardless of their types
+- **ErasedValidator Pattern**: Solves type erasure elegantly with function generators ✅
+- **Type Safety**: Full compile-time type checking during registration ✅
+- **Performance**: Zero runtime type resolution - validation logic "baked in" ✅
+- **Flexibility**: Each method can have completely different parameter types ✅
+- **Simplicity**: Same BTree stores all methods regardless of their types ✅
+- **Code Generation Tool**: TypeScript-based tool with didc integration ✅
+- **Dynamic Type Aliases**: Only imports types that actually exist ✅
+- **Actor Class Support**: Handles both regular services and actor class patterns ✅
+- **Clean Naming**: CamelCase function names and clean API ✅
+- **DFX Integration**: Motoko canisters do not support prebuild hooks; use manual codegen before builds
+- **Build System Status**: DFX supported ✅, mops limitation confirmed ❌
       case (#err(msg)) { throw Error.reject(msg) };
     };
     
@@ -218,10 +174,10 @@ actor MyCanister {
 ### Challenge 6: Build System Integration
 **Problem**: Seamless integration with existing build processes
 **Solutions**:
-- Native mops integration
-- dfx hook system
-- Standalone CLI tool option
-- IDE extensions for configuration assistance
+- ✅ **DFX Integration**: Manual codegen workflow documented (no prebuild hooks for Motoko)
+- ❌ **Mops Limitation**: mops.toml doesn't support prebuild hooks (confirmed limitation)
+- ✅ **Standalone CLI Tool**: TypeScript-based code generation tool
+- 🔄 **IDE Extensions**: Future enhancement for configuration assistance
 
 ## Success Metrics
 
@@ -236,6 +192,179 @@ actor MyCanister {
 - **Developer Satisfaction**: >4.5/5 rating in community surveys
 - **Security Improvements**: Measurable reduction in canister vulnerabilities
 - **Documentation Quality**: <2 average support requests per user
+
+## Code Generation Tool
+
+### Overview
+The project includes a sophisticated TypeScript-based code generation tool (`tools/codegen/`) that automates the creation of type-safe validation boilerplate from Candid interface files.
+
+### Key Features
+
+#### Intelligent Auto-Discovery
+- **Primary Source Detection**: Automatically prioritizes `src/declarations/` directory (created by `dfx generate`)
+- **Smart Filtering**: Excludes build artifacts (`.dfx/local/lsp/`, `constructor.did`, package manager folders)
+- **Project-Aware**: Reads `dfx.json` to understand canister structure
+- **Comprehensive Analysis**: Discovers .did files, analyzes existing InspectMo usage, suggests integrations
+
+#### Delegated Accessor Pattern
+- **Type-Safe Field Extraction**: Users provide extraction functions instead of error-prone automatic parsing
+- **Complex Type Support**: Handles recursive types, variants, records through user-controlled delegation
+- **Performance Optimized**: No runtime parsing overhead, all extraction happens at compile time
+
+#### Build System Integration
+- **⚠️ Mops Limitation**: mops.toml does not support prebuild hooks or build scripts
+- **ℹ️ DFX**: `dfx.json` does not provide prebuild hooks for Motoko canisters; run codegen manually
+- **Automated Workflow**: `npm run codegen` seamlessly integrates with DFX build process
+- **Watch Mode Support**: Automatic regeneration when interface files change (via DFX prebuild hooks)
+
+### Build System Integration Details
+
+#### DFX Integration (✅ Fully Supported)
+
+The code generation tool provides seamless integration with DFX build systems:
+
+**Automatic Setup:**
+```bash
+# Install DFX build hooks
+# No install-hooks for Motoko canisters; use manual codegen before builds
+```
+
+**Integration Results:**
+- ✅ Adds `codegen` script to `dfx.json` 
+- ✅ Provides codegen scripts; developers run manually before dfx build
+- ✅ Automatic code generation before every `dfx build`
+- ✅ Generated files placed in `src/generated/` directory
+
+**dfx.json Configuration:**
+```json
+{
+  "scripts": {
+  "codegen": "cd tools/codegen && npx ts-node src/cli.ts discover ../../ --generate"
+  },
+  "canisters": {
+    "main": {
+      "main": "./src/main.mo",
+      "type": "motoko",
+  # No prebuild hooks; run manually before build:
+  # npm run codegen
+    },
+    "test_canister": {
+      "main": "./src/test_canister.mo", 
+      "type": "motoko",
+  # No prebuild hooks; run manually before build:
+  # npm run codegen
+    }
+  }
+}
+```
+
+#### Mops Integration (❌ Not Supported)
+
+**Limitation**: mops.toml configuration format does not support build hooks or prebuild scripts according to the [official mops documentation](https://docs.mops.one/).
+
+**Valid mops.toml sections:**
+- `[package]` - Package metadata
+- `[dependencies]` - Runtime dependencies  
+- `[dev-dependencies]` - Development dependencies
+- `[toolchain]` - Motoko compiler versions
+- `[requirements]` - Package requirements
+
+**No support for:**
+- ❌ `[build]` section 
+- ❌ `pre-build` hooks
+- ❌ `post-build` scripts
+- ❌ Custom build commands
+
+**Workaround**: Use DFX integration instead, or run `npm run codegen` manually before `mops test`.
+
+#### Manual Integration
+
+For projects not using DFX or requiring custom workflows:
+
+```bash
+# Generate code for specific .did file
+npx ts-node tools/codegen/src/cli.ts canister.did --output src/generated/generated-inspect.mo
+
+# Auto-discover and generate for entire project
+npx ts-node tools/codegen/src/cli.ts discover . --generate --output src/generated/
+
+# Project analysis and suggestions
+npx ts-node tools/codegen/src/cli.ts discover . --suggest
+```
+
+### Generated Code Structure
+```motoko
+// Generated validation module with delegated accessors
+public func validateMethod<T>(
+  getField1: T -> Text,
+  getField2: T -> Blob
+) : [InspectMo.ValidationRule<MessageAccessor, T>] {
+  [
+    InspectMo.textSize<MessageAccessor, T>(getField1, ?1, ?100),
+    InspectMo.blobSize<MessageAccessor, T>(getField2, null, ?1_000_000)
+  ]
+};
+```
+
+### CLI Commands
+```bash
+# Auto-discovery with project analysis (optional)
+npx ts-node tools/codegen/src/cli.ts discover <project> --suggest
+
+# Single file generation
+npx ts-node tools/codegen/src/cli.ts <canister.did> --output <output.mo>
+
+# Generate for all discovered files
+npx ts-node tools/codegen/src/cli.ts discover <project> --generate --output src/generated/
+```
+
+### Discovery Output Example
+```
+🔍 Auto-discovering project structure in: ./
+📁 Found src/declarations - using as primary source for .did files
+
+📊 Project Analysis:
+   • 7 .did file(s) found
+   • 277 .mo file(s) found
+   • 84 InspectMo usage(s) detected
+
+� Candid Files:
+   • src/declarations/test_canister/test_canister.did
+   • src/declarations/main/main.did
+   • src/declarations/complex_test_canister/complex_test_canister.did
+
+�💡 Integration Status:
+   ℹ️  mops.toml does not support prebuild hooks - integration not available
+   ✅ dfx.json has inspect-mo codegen script
+   ✅ 5/5 Motoko canisters have prebuild hooks
+
+Overall Status:
+   Mops Integration: ❌ Not Supported (mops.toml doesn't support prebuild hooks)
+   DFX Integration: ✅ Installed
+
+� Generating boilerplate for discovered .did files...
+   ✅ Generated: src/generated/test_canister-inspect.mo
+   ✅ Generated: src/generated/main-inspect.mo
+   ✅ Generated: src/generated/complex_test_canister-inspect.mo
+```
+
+### Integration Workflow
+
+#### Recommended Setup
+1. Run code generation when interfaces change: `npm run codegen`
+2. Build canisters: `dfx build`
+3. Run Motoko tests: `mops test`
+4. Run integration tests: `npm test`
+
+#### Continuous Integration (optional)
+Even without hooks, you can ensure consistency by invoking codegen explicitly in CI before builds:
+
+```yaml
+- name: Generate helpers
+  run: npm run codegen
+- name: Build canisters
+  run: dfx build
+```
 
 ## Risk Mitigation
 
@@ -269,10 +398,15 @@ actor MyCanister {
 - **Auto-updating Security Rules**: Crowd-sourced threat intelligence
 
 ### Ecosystem Integration
-- **Internet Identity Integration**: Simplified principal type detection (user vs canister)
+- **Principal-based Authentication**: Leverages IC's built-in authentication
+- **RBAC Examples**: Demonstration RBAC adapters (⚠️ not production-ready)
 - **ICRC Standards Compliance**: Support for token and NFT standards
 - **Multi-language Support**: Rust and TypeScript versions
 - **Cloud Services Integration**: AWS/GCP security service connectors
+
+## Important Limitations
+
+**⚠️ RBAC Implementation Notice**: The current RBAC adapters provided with InspectMo are **example implementations only** and are **not suitable for production use**. They demonstrate integration patterns but have significant performance and security limitations including O(n) lookups, no caching, and missing role hierarchy support. Production deployments should implement proper hash-based storage, caching mechanisms, and comprehensive security features.
 
 ## Getting Started (Future)
 
@@ -280,7 +414,7 @@ Once development is complete, developers will be able to:
 
 1. **Install**: `mops add inspect-mo`
 2. **Configure**: Add declarative inspection rules to their canister
-3. **Generate**: Run `inspect-mo-generate` to create type-safe helpers (optional)
+3. **Generate**: Run the local codegen tool to create type-safe helpers (optional)
 4. **Deploy**: Secure canister with minimal code changes
 
 This library will make Internet Computer canisters more secure by default while maintaining the developer experience that makes Motoko great for IC development.

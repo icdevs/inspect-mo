@@ -1,5 +1,21 @@
 /// RBAC (Role-Based Access Control) Adapter for InspectMo
 /// Integrates the permission system with InspectMo validation framework
+///
+/// ⚠️  WARNING: EXAMPLE IMPLEMENTATION ONLY ⚠️
+/// This RBAC adapter is provided as a demonstration and is NOT production-ready.
+/// Known limitations:
+/// - Uses arrays for role/permission storage (O(n) lookups)
+/// - No proper caching mechanisms for performance
+/// - Missing role hierarchy support
+/// - Limited session management
+/// - No bulk operations for efficiency
+/// 
+/// For production use, consider:
+/// - Implementing hash-based data structures (HashMap/Set)
+/// - Adding proper permission caching with TTL
+/// - Implementing role inheritance
+/// - Adding monitoring and metrics
+/// - Using external RBAC services for scale
 
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
@@ -102,12 +118,14 @@ module {
     };
     
     /// Check if principal has specific permission (with prefix)
+    /// TODO: PRODUCTION - Replace with O(1) hash-based lookup instead of array iteration
     public func hasPermission(principal: Principal, permission: Text) : Auth.PermissionResult {
       let fullPermission = config.permissionPrefix # permission;
       permissionSystem.hasPermission(principal, fullPermission)
     };
     
     /// Check if principal has any of the permissions for an operation
+    /// TODO: PRODUCTION - Implement efficient flattened permission checking
     public func hasOperationAccess(principal: Principal, operation: Text) : Auth.PermissionResult {
       let permissions = getOperationPermissions(operation);
       let fullPermissions = Array.map<Text, Text>(permissions, func(p) { config.permissionPrefix # p });
@@ -115,11 +133,14 @@ module {
     };
     
     /// Check if principal has specific role
+    /// TODO: PRODUCTION - Add role caching to avoid repeated lookups
     public func hasRole(principal: Principal, role: Text) : Bool {
       permissionSystem.hasRole(principal, role)
     };
     
     /// Initialize default session for principal if not exists
+    /// TODO: PRODUCTION - Implement session caching and TTL management
+    /// TODO: PRODUCTION - Add session invalidation mechanisms
     public func ensureSession(principal: Principal, getUserRoles: (Principal) -> [Text]) : Auth.UserSession {
       switch (permissionSystem.getSession(principal)) {
         case (?session) session;
@@ -145,6 +166,7 @@ module {
     };
     
     /// Check if principal has admin privileges
+    /// TODO: PRODUCTION - Implement admin privilege caching
     public func isAdmin(principal: Principal) : Bool {
       for (adminRole in config.adminRoles.vals()) {
         if (hasRole(principal, adminRole)) {
@@ -155,6 +177,7 @@ module {
     };
     
     /// Get effective permissions for a principal
+    /// TODO: PRODUCTION - Cache flattened permissions for performance
     public func getEffectivePermissions(principal: Principal) : [Text] {
       switch (permissionSystem.getSession(principal)) {
         case (?session) session.permissions;
@@ -163,6 +186,7 @@ module {
     };
     
     /// Get effective roles for a principal  
+    /// TODO: PRODUCTION - Add role hierarchy resolution
     public func getEffectiveRoles(principal: Principal) : [Text] {
       switch (permissionSystem.getSession(principal)) {
         case (?session) session.roles;
@@ -253,6 +277,11 @@ module {
   };
   
   /// Create a role hierarchy configuration
+  /// TODO: PRODUCTION - This is a basic example. For production, implement:
+  /// - Role inheritance with cycle detection
+  /// - Permission conflict resolution
+  /// - Atomic role assignment operations
+  /// - Role dependency management
   public func defineStandardRoles(permissionSystem: Auth.PermissionSystem) : () {
     let roles = [
       {

@@ -44,6 +44,7 @@ export function generateFromCandidFile(
         generateInspectTemplate: true,
         generateGuardTemplate: true,
         generateMethodExtraction: true,
+        generateTypeDefinitions: true,
         includeComments: true,
         ...options
       }

@@ -1,5 +1,11 @@
 // Main InspectMo library entry point
 // Re-exports the core inspector functionality with Class Plus integration
+//
+// ⚠️  IMPORTANT: RBAC Integration Examples ⚠️
+// The RBAC adapters in src/integrations/permission_systems/ are EXAMPLE IMPLEMENTATIONS ONLY
+// and are NOT production-ready. They demonstrate integration patterns but have significant
+// performance limitations including O(n) lookups, no caching, and missing security features.
+// See docs/WORKPLAN.md Phase 2 for production-ready RBAC development plans.
 
 import Inspector "core/inspector";
 

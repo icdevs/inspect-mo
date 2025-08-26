@@ -5,7 +5,6 @@ import Time "mo:core/Time";
 
 import Auth "../src/security/auth";
 import RBACAdapter "../src/integrations/permission_systems/rbac_adapter";
-import IIIntegration "../src/integrations/permission_systems/ii_integration";
 import CustomAuth "../src/integrations/permission_systems/custom_auth";
 
 /// Test permission system integrations
@@ -59,76 +58,6 @@ await test("RBAC adapter basic functionality", func() : async () {
   Debug.print("✓ Validation rules created successfully");
   
   Debug.print("✓ RBAC adapter test passed");
-});
-
-await test("Internet Identity integration", func() : async () {
-  Debug.print("Testing simplified Internet Identity integration...");
-  
-  // Create simplified auth setup
-  let setup = IIIntegration.createAuthSetup("myapp");
-  
-  let testUserPrincipal = Principal.fromText("s6bzd-46mcd-mlbx5-cq2jv-m2mhx-nhj6y-erh6g-y73vq-fnfe6-zax3q-mqe"); // Real self-authenticating user principal
-  let testCanisterPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"); // Canister principal
-  
-  // Test principal type detection
-  let isUser = setup.iiIntegration.isSelfAuthenticating(testUserPrincipal);
-  Debug.print("✓ Principal type detection: " # debug_show(isUser));
-  
-  // Test authentication with user principal
-  let authResult1 = setup.iiIntegration.authenticate(testUserPrincipal);
-  switch (authResult1) {
-    case (#authenticated(profile)) {
-      Debug.print("✓ User authentication successful");
-      Debug.print("✓ First seen: " # debug_show(profile.firstSeen));
-      Debug.print("✓ Login count: " # debug_show(profile.loginCount));
-    };
-    case (_) {
-      Debug.print("✗ Expected user authentication to succeed");
-      assert false;
-    };
-  };
-  
-  // Test authentication with canister principal
-  let authResult2 = setup.iiIntegration.authenticate(testCanisterPrincipal);
-  switch (authResult2) {
-    case (#canister(principal)) {
-      Debug.print("✓ Canister principal correctly identified");
-    };
-    case (_) {
-      Debug.print("✗ Expected canister identification");
-      assert false;
-    };
-  };
-  
-  // Test anonymous principal
-  let authResult3 = setup.iiIntegration.authenticate(Principal.anonymous());
-  switch (authResult3) {
-    case (#anonymous) {
-      Debug.print("✓ Anonymous principal correctly identified");
-    };
-    case (_) {
-      Debug.print("✗ Expected anonymous identification");
-      assert false;
-    };
-  };
-  
-  // Test authentication status
-  let isAuth = setup.iiIntegration.isAuthenticated(testUserPrincipal);
-  assert isAuth;
-  Debug.print("✓ Authentication status confirmed");
-  
-  // Test user stats (NOTE: Time-based stats like newUsersToday need PIC.js tests for realistic time simulation)
-  let stats = setup.iiIntegration.getUserStats();
-  Debug.print("✓ User stats - Total: " # debug_show(stats.totalUsers) # 
-             ", Active: " # debug_show(stats.activeUsers) # 
-             " (newUsersToday: " # debug_show(stats.newUsersToday) # " - time-based, may be inaccurate in mops test)");
-  
-  // Test utility function
-  let isPrincipalUser = IIIntegration.isUserPrincipal(testUserPrincipal);
-  assert isPrincipalUser;
-  Debug.print("✓ Utility function confirmed user principal");
-  
-  Debug.print("✓ Simplified Internet Identity integration test passed");
 });
 
 await test("custom auth provider", func() : async () {

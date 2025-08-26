@@ -8,21 +8,18 @@ import RateLimiter "../security/rate_limiter";
 
 import MigrationLib "../migrations";
 import ClassPlusLib "mo:class-plus";
-import List "mo:core/List";
-import Array "mo:core/Array";
+// removed unused imports
 import D "mo:core/Debug";
 import Star "mo:star/star";
 import ovsfixed "mo:ovs-fixed";
 import Int "mo:core/Int";
-import Time "mo:core/Time";
-import Error "mo:core/Error";
+// removed unused imports
 import Principal "mo:core/Principal";
 import Blob "mo:core/Blob";
 import Nat "mo:core/Nat";
-import Timer "mo:core/Timer";
-import Log "mo:stable-local-log";
+// removed unused imports
 import TimerToolLib "mo:timer-tool";
-import LocalLog "mo:stable-local-log";
+// removed unused imports
 
 // Basic validation imports
 import Result "mo:core/Result";
@@ -55,7 +52,7 @@ module {
 
 
   public let ICRC85_Timer_Namespace = "icrc85:ovs:shareaction:inspect-mo";
-  public let ICRC85_Payment_Namespace = "com.icdevs.libraries.inspect-mo";
+  public let ICRC85_Payment_Namespace = "org.icdevs.libraries.inspect-mo";
 
   // ========================================
   // INSPECTMO LIBRARY API
@@ -80,7 +77,7 @@ module {
     
   }) :()-> InspectMo {
 
-    let instance = ClassPlusLib.ClassPlus<system,
+  let instance = ClassPlusLib.ClassPlus<system,
       InspectMo, 
       State,
       InitArgs,
@@ -99,10 +96,11 @@ module {
     // Only initialize ICRC85 cycle sharing if environment is provided
     switch(instance().environment) {
       case (?env) {
+        let initialWait : ?Nat = do? { env.advanced!.icrc85!.period! };
         ovsfixed.initialize_cycleShare<system>({
           namespace = ICRC85_Timer_Namespace;
           icrc_85_state = instance().state.icrc85;
-          wait = null;
+          wait = initialWait; // Use provided period as initial wait when available
           registerExecutionListenerAsync = env.tt.registerExecutionListenerAsync;
           setActionSync = env.tt.setActionSync;  
           existingIndex = env.tt.getState().actionIdIndex;
@@ -129,7 +127,7 @@ module {
 
     public let debug_channel = {
       var announce = true;
-    };
+    }; 
 
     let inspect_config : InitArgs = switch(args){
       case(?val) val;
@@ -147,7 +145,17 @@ module {
       };
     };
 
-    public let environment = environment_passed;
+    // Environment can change over time (e.g., tests enabling ICRC85 options).
+    // Keep a mutable copy and provide a refresher.
+    public var environment : ?Environment = environment_passed;
+
+    // Compatibility no-op; kept for API stability if callers invoke it.
+    public func refreshEnvironment() : () { };
+
+    // New: allow the environment to be updated by the embedding canister
+    public func setEnvironment(env: ?Environment) : () {
+      environment := env;
+    };
 
     // let d = environment.log.log_debug; // Commented out for test compatibility
 
@@ -245,6 +253,7 @@ module {
       
       /// Runtime validation check with typed context
       public func guardCheck(args: Types.InspectArgs<T>) : Types.GuardResult {
+         state.icrc85.activeActions += 1;
          switch (BTree.get(guardRules, Text.compare, args.methodName)) {
           case (?guardInfo) { 
             switch (guardInfo.validator(args)) {
@@ -474,10 +483,10 @@ module {
                 };
              
           };
-          case (#rateLimit(rateLimitRule)) {
+      case (#rateLimit(_rateLimitRule)) {
             // Use RateLimiter if available in environment
             switch (environment) {
-              case (?env) {
+        case (?_env) {
                 // TODO: Implement rate limiting with environment
                 #ok  // Placeholder for now
               };
@@ -582,46 +591,43 @@ module {
       Inspector<T>(mergedConfig)
     };
 
-    ///////////
-    // ICRC85 ovs
-    //////////
-
-    public let ICRC85_Timer_Namespace = "icrc85:ovs:shareaction:icdevs:inspect";
+  ///////////
+  // ICRC85 ovs
+  //////////
 
     public func handleIcrc85Action<system>(id: TT.ActionId, action: TT.Action) : async* Star.Star<TT.ActionId, TT.Error> {
-      switch (action.actionType) {
-        case (ICRC85_Timer_Namespace) {
-          await* ovsfixed.standardShareCycles({
-            icrc_85_state = state.icrc85;
-            icrc_85_environment = switch(environment) {
-              case (?env) {
-                switch (env.advanced) {
-                  case (?adv) {
-                    switch (adv.icrc85) {
-                      case (?icrc85Opt) ?icrc85Opt;
-                      case null null;
-                    };
+      if (action.actionType == ICRC85_Timer_Namespace) {
+        await* ovsfixed.standardShareCycles({
+          icrc_85_state = state.icrc85;
+          icrc_85_environment = switch(environment) {
+            case (?env) {
+              switch (env.advanced) {
+                case (?adv) {
+                  switch (adv.icrc85) {
+                    case (?icrc85Opt) ?icrc85Opt;
+                    case null null;
                   };
-                  case null null;
                 };
+                case null null;
               };
-              case null null;
             };
-            setActionSync = switch(environment) {
-              case (?env) env.tt.setActionSync;
-              case null func<system>(time: TimerToolLib.Time, action: TimerToolLib.ActionRequest) : TimerToolLib.ActionId { {id = 0; time = 0} /* mock ID */ };
-            };
-            timerNamespace = ICRC85_Timer_Namespace;
-            paymentNamespace = ICRC85_Payment_Namespace;
-            baseCycles = 1_000_000_000_000; // 1 XDR
-            maxCycles = 100_000_000_000_000; // 100 XDR
-            actionDivisor = 10000;
-            actionMultiplier = 200_000_000_000; // .2 XDR
-          });
-          #awaited(id);
-        };
-        case (_) #trappable(id);
-      };
+            case null null;
+          };
+          setActionSync = switch(environment) {
+            case (?env) env.tt.setActionSync;
+            case null func<system>(_time: TimerToolLib.Time, _action: TimerToolLib.ActionRequest) : TimerToolLib.ActionId { {id = 0; time = 0} /* mock ID */ };
+          };
+          timerNamespace = ICRC85_Timer_Namespace;
+          paymentNamespace = ICRC85_Payment_Namespace;
+          baseCycles = 1_000_000_000_000; // 1 XDR
+          maxCycles = 100_000_000_000_000; // 100 XDR
+          actionDivisor = 10000;
+          actionMultiplier = 200_000_000_000; // .2 XDR
+        });
+        #awaited(id)
+      } else {
+        #awaited(id)
+      }
     };
 
   };

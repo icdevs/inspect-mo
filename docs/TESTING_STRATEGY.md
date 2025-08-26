@@ -52,10 +52,10 @@ InspectMo uses a dual testing approach to ensure comprehensive coverage of both 
 📋 pic/main/main.test.ts              - Main integration tests
 ```
 
-## Internet Identity Authentication Testing
+## Principal-Based Authentication Testing
 
-### Principal Type Detection
-Our simplified authentication approach focuses on **principal type detection** rather than complex delegation verification.
+### Authentication Strategy
+Our authentication approach focuses on **trusting IC-verified principals** and implementing authorization logic based on business requirements.
 
 #### Test Principals
 
@@ -189,5 +189,12 @@ npm test
 - 📝 **PIC.js templates are ready** - need actual canister interface
 - 🎯 **Focus on principal type detection** instead of delegation verification
 - 🔧 **Use real long principals** for realistic self-authenticating testing
+
+### Orthogonal upgrades (PIC.js)
+- Current limitation: standard PIC.js does not expose an orthogonal upgrade helper yet. Track https://github.com/dfinity/pic-js/issues/146.
+- Workarounds we use in tests until upstream support lands:
+  - Use a local helper that calls `install_code` with `mode = upgrade` and options: `wasm_memory_persistence = keep` and `skip_pre_upgrade = None` (encoded as Opt Some/None appropriately). In our local fork this is exposed as `upgradeCanisterOrtho`.
+  - If a helper is unavailable, simulate upgrade cadence with stop/start and verify post-restart timers fire on the expected weekly schedule.
+
 
 This dual approach ensures both fast development cycles and comprehensive validation of time-dependent security features.

@@ -30,9 +30,10 @@
     "useUnknownInCatchVariables": true,
     "noPropertyAccessFromIndexSignature": true,
 
-    "jsx": "react-jsx"
+  "jsx": "react-jsx",
+  "esModuleInterop": true
   },
-  "esModuleInterop": true,
+  
   "include": [
 
     "./pic/**/*.ts",

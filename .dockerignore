@@ -1,6 +1,0 @@
-node_modules
-.devcontainer
-tsconfig.json
-jest.config.js
-package*.json
-*.ts

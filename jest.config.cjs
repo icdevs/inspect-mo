@@ -4,14 +4,10 @@ module.exports = {
   globalSetup: '<rootDir>/pic/global-setup.ts',
   globalTeardown: '<rootDir>/pic/global-teardown.ts',
   testEnvironment: 'node',
+  testTimeout: 30000, // Increase timeout to 30 seconds for PocketIC setup
   extensionsToTreatAsEsm: ['.ts'],
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
-  },
   transform: {
-    '^.+\\.ts?$': ['ts-jest', { useESM: true }],
+    '^.+\\.ts?$': ['ts-jest', { useESM: true, tsconfig: '<rootDir>/tsconfig.json' }],
     '^.+\\.js$': ['ts-jest', { useESM: true }],
   },
   transformIgnorePatterns: [

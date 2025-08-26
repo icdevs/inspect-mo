@@ -74,8 +74,8 @@ persistent actor ComplexTestWithInspection {
   };
   
   // Storage for testing
-  private stable var profiles : [UserProfile] = [];
-  private stable var callCount : Nat = 0;
+  var profiles : [UserProfile] = [];
+  var callCount : Nat = 0;
 
   // Accessor functions for ErasedValidator pattern
   transient func getProfileName(args: Args): Text {

@@ -24,7 +24,7 @@ describe('InspectMo Time-Based Integration Tests', () => {
     }
   });
   
-  describe('Internet Identity Time-Based Features', () => {
+  describe('Principal-Based Authentication Time Features', () => {
     test('user stats with time progression', async () => {
       // Mock test - verify the test framework works
       expect(true).toBe(true);

@@ -1,2 +1,38 @@
 src/declarations/
 package-lock.json
+
+# Build artifacts
+target/
+out/
+dist/
+coverage/
+
+# Local environments
+.dfx/
+node_modules/
+.mops/**/node_modules/
+.mops/**/dist/
+
+# Generated code
+src/generated/
+**/generated-*.mo
+**/generated/**
+tools/codegen/generated-*.mo
+tools/codegen/generated-*/
+
+# Editor/OS
+.DS_Store
+*.log
+# Jest cache
+pic/.jest-cache
+# Docker (unused)
+Dockerfile
+Dockerfile.base
+docker-compose.yml
+
+# Codegen dev artifacts
+tools/codegen/node_modules/
+tools/codegen/dist/
+tools/codegen/package-lock.json
+tools/codegen/debug-*.js
+

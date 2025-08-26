@@ -3,11 +3,12 @@
  */
 
 import { Command } from 'commander';
-import { existsSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { join, basename, relative, resolve } from 'path';
 import { parseCandidFile } from './candid-parser';
 import { MotokoCodeGenerator } from './code-generator';
 import { SourceAnalyzer } from './source-analyzer';
+import { BuildIntegrator } from './build-integration';
 import { GenerationOptions } from './types';
 
 const program = new Command();
@@ -57,7 +58,10 @@ program
       generateInspectTemplate: options.inspect !== false,
       generateGuardTemplate: options.guard !== false,
       generateMethodExtraction: options.methods !== false,
-      includeComments: options.comments !== false
+      generateTypeDefinitions: true, // Always generate missing type definitions
+      includeComments: options.comments !== false,
+      handleRecursiveTypes: true, // Enable recursive type handling
+      maxDepth: 50 // Set max parsing depth
     };
 
     // Generate code
@@ -68,10 +72,12 @@ program
       serviceName: 'GeneratedService',
       service: parseResult.service,
       outputPath: options.output,
-      options: generationOptions
+      options: generationOptions,
+      typeDefinitions: parseResult.typeDefinitions,
+      recursiveTypes: new Set(parseResult.recursiveTypes || [])
     };
 
-    const generatedCode = generator.generateBoilerplate(context);
+    const generatedCode = generator.generateBoilerplate(context, candidFile);
     
     // Write output file
     try {
@@ -164,57 +170,181 @@ program
   });
 
 program
-  .command('scan')
-  .description('Scan existing source code for InspectMo usage patterns')
-  .argument('[source-dir]', 'Directory to scan for .mo files', '.')
-  .option('--detailed', 'Show detailed line-by-line analysis')
-  .action((sourceDir: string, options: any) => {
-    console.log(`🔍 Scanning for InspectMo usage in: ${sourceDir}`);
+  .command('discover')
+  .description('Auto-discover .did files and analyze project structure')
+  .argument('[project-dir]', 'Project directory to analyze', '.')
+  .option('--include <patterns...>', 'Include patterns for .did files', ['**/*.did', '.dfx/**/*.did'])
+  .option('--exclude <patterns...>', 'Exclude patterns', ['node_modules/**', '.git/**'])
+  .option('--generate', 'Generate boilerplate for all discovered .did files')
+  .option('--output <dir>', 'Output directory for generated files', 'src/generated/')
+  .option('--suggest', 'Show integration suggestions')
+  .action((projectDir: string, options: any) => {
+    console.log(`🔍 Auto-discovering project structure in: ${projectDir}`);
     
-    if (!existsSync(sourceDir)) {
-      console.error(`❌ Error: Directory not found: ${sourceDir}`);
+    if (!existsSync(projectDir)) {
+      console.error(`❌ Error: Directory not found: ${projectDir}`);
       process.exit(1);
     }
 
     const analyzer = new SourceAnalyzer();
-    const result = analyzer.analyzeDirectory(sourceDir);
+    const analysis = analyzer.analyzeProject(projectDir, {
+      projectRoot: projectDir,
+      includePatterns: options.include,
+      excludePatterns: options.exclude,
+      scanMotokoFiles: true,
+      generateMissingTypes: true
+    });
     
-    console.log(`\n📊 Scan Results:`);
-    console.log(`   • ${result.inspectCalls.length} inspect() calls found`);
-    console.log(`   • ${result.guardCalls.length} guard() calls found`);
+    console.log(`\n📊 Project Analysis:`);
+    console.log(`   • ${analysis.didFiles.length} .did file(s) found`);
+    console.log(`   • ${analysis.motokoFiles.length} .mo file(s) found`);
+    console.log(`   • ${analysis.inspectMoUsage.length} InspectMo usage(s) detected`);
     
-    if (options.detailed) {
-      if (result.inspectCalls.length > 0) {
-        console.log('\n📋 Inspect calls:');
-        for (const call of result.inspectCalls) {
-          console.log(`   • ${call.file}:${call.line}`);
-          console.log(`     Method: ${call.method || 'unknown'}`);
-          console.log(`     Rules: ${call.rules.join(', ') || 'none'}`);
-          console.log(`     Code: ${call.raw}`);
-          console.log('');
-        }
-      }
-
-      if (result.guardCalls.length > 0) {
-        console.log('🛡️ Guard calls:');
-        for (const call of result.guardCalls) {
-          console.log(`   • ${call.file}:${call.line}`);
-          console.log(`     Method: ${call.method || 'runtime'}`);
-          console.log(`     Rules: ${call.rules.join(', ') || 'none'}`);
-          console.log(`     Code: ${call.raw}`);
-          console.log('');
+    if (analysis.didFiles.length > 0) {
+      console.log('\n📄 Candid Files:');
+      analysis.didFiles.forEach(file => {
+        console.log(`   • ${file}`);
+      });
+    }
+    
+    if (analysis.inspectMoUsage.length > 0) {
+      console.log('\n� InspectMo Usage:');
+      analysis.inspectMoUsage.forEach(usage => {
+        console.log(`   • ${usage.filePath}:${usage.lineNumber} - ${usage.usageType}(${usage.methodName})`);
+      });
+    }
+    
+    if (analysis.missingTypes.length > 0) {
+      console.log('\n⚠️  Missing Types Detected:');
+      analysis.missingTypes.forEach(type => {
+        console.log(`   • ${type}`);
+      });
+    }
+    
+    if (options.suggest && analysis.suggestedIntegrations.length > 0) {
+      console.log('\n💡 Integration Suggestions:');
+      analysis.suggestedIntegrations.forEach(suggestion => {
+        console.log(`\n🔧 ${suggestion.description} (${suggestion.priority} priority)`);
+        console.log(`   Implementation:`);
+        console.log(`   ${suggestion.implementation.split('\n').join('\n   ')}`);
+      });
+    }
+    
+    if (options.generate && analysis.didFiles.length > 0) {
+      console.log('\n� Generating boilerplate for discovered .did files...');
+      
+      const generator = new MotokoCodeGenerator();
+      
+      for (const didFile of analysis.didFiles) {
+        const parseResult = parseCandidFile(didFile);
+        
+        if (parseResult.success && parseResult.service) {
+          const baseName = basename(didFile, '.did');
+          const outputDir = resolve(projectDir, options.output || 'src/generated/');
+          // Ensure output directory exists
+          if (!existsSync(outputDir)) {
+            mkdirSync(outputDir, { recursive: true });
+          }
+          const outputFile = join(outputDir, `${baseName}-inspect.mo`);
+          
+          const context = {
+            serviceName: baseName,
+            service: parseResult.service,
+            outputPath: outputFile,
+            options: {
+              generateAccessors: true,
+              generateInspectTemplate: true,
+              generateGuardTemplate: true,
+              generateMethodExtraction: true,
+              generateTypeDefinitions: true,
+              includeComments: true
+            },
+            typeDefinitions: parseResult.typeDefinitions,
+            recursiveTypes: new Set(parseResult.recursiveTypes || [])
+          };
+          
+          const generatedCode = generator.generateBoilerplate(context, didFile);
+          writeFileSync(outputFile, generatedCode, 'utf-8');
+          console.log(`   ✅ Generated: ${relative(process.cwd(), outputFile)}`);
+        } else {
+          console.log(`   ❌ Failed to parse: ${didFile}`);
         }
       }
     }
+    
+    console.log('\n✅ Discovery complete!');
+  });
 
-    if (result.suggestions.length > 0) {
-      console.log('\n💡 Suggestions:');
-      for (const suggestion of result.suggestions) {
-        console.log(`   • ${suggestion}`);
-      }
+// Build system integration commands
+program
+  .command('install-hooks')
+  .description('Install DFX build system integration hooks')
+  .argument('<project-path>', 'path to the project root')
+  .option('--output <dir>', 'output directory for generated code', 'src/generated/')
+  .action(async (projectPath: string, options: any) => {
+    const integrator = new BuildIntegrator();
+    const analyzer = new SourceAnalyzer();
+    
+    console.log(`🔧 Installing build system hooks in: ${projectPath}\n`);
+    
+    // Analyze project to get build configuration
+    const analysis = analyzer.analyzeProject(projectPath);
+    const buildConfig = integrator.generateBuildConfig(projectPath, analysis, options.output);
+    
+    const results: string[] = [];
+    
+    // Note: mops integration is not supported
+    console.log('ℹ️  mops.toml does not support build hooks - skipping mops integration');
+    
+    // Install dfx integration  
+    const dfxResult = await integrator.installDfxIntegration(projectPath, buildConfig);
+    if (dfxResult.success) {
+      results.push(`✅ ${dfxResult.message}`);
+    } else {
+      results.push(`❌ ${dfxResult.message}`);
     }
+    
+    console.log(results.join('\n'));
+    console.log('\n🎉 Build system integration complete!');
+  });
 
-    console.log('\n✅ Scan complete!');
+program
+  .command('status')
+  .description('Check build system integration status')
+  .argument('<project-path>', 'path to the project root')
+  .action((projectPath: string) => {
+    const integrator = new BuildIntegrator();
+    
+    console.log(`📊 Checking build integration status in: ${projectPath}\n`);
+    
+    const status = integrator.checkIntegrationStatus(projectPath);
+    
+    console.log('Integration Status:');
+    status.details.forEach(detail => console.log(`   ${detail}`));
+    
+    console.log(`\nOverall Status:`);
+    console.log(`   Mops Integration: ❌ Not Supported (mops.toml doesn't support prebuild hooks)`);
+    console.log(`   DFX Integration: ${status.dfxInstalled ? '✅ Installed' : '❌ Not Installed'}`);
+  });
+
+program
+  .command('uninstall-hooks')
+  .description('Remove build system integration hooks')
+  .argument('<project-path>', 'path to the project root')
+  .action(async (projectPath: string) => {
+    const integrator = new BuildIntegrator();
+    
+    console.log(`🗑️  Removing build system hooks from: ${projectPath}\n`);
+    
+    const result = await integrator.uninstallIntegration(projectPath);
+    
+    if (result.success) {
+      console.log(`✅ ${result.message}`);
+    } else {
+      console.log(`❌ ${result.message}`);
+    }
+    
+    console.log('\n🧹 Cleanup complete!');
   });
 
 if (require.main === module) {
