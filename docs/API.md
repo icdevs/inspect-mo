@@ -303,29 +303,73 @@ actor FileUploader {
   });
 
   // Small metadata uploads
-  inspector.inspect("upload_metadata", [
-    InspectMo.textSize<Text>(Types.getMetadata, max = ?5_000),
-    InspectMo.requireAuth()
-  ]);
+  inspector.inspect(inspector.createMethodGuardInfo<Text>(
+    "upload_metadata",
+    false,
+    [
+      InspectMo.textSize<MessageAccessor, Text>(func(text: Text): Text { text }, max = ?5_000),
+      InspectMo.requireAuth()
+    ],
+    func(msg: MessageAccessor): Text {
+      switch (msg) {
+        case (#upload_metadata(metadata)) metadata;
+        case (_) ""; // default fallback
+      }
+    }
+  ));
   public func upload_metadata(metadata: Text): async () {
     // Implementation
   };
 
   // Large file uploads with comprehensive validation
-  inspector.inspect( "upload_file", [
-    InspectMo.blobSize<Blob, Text>(Types.getFileData, min = ?1, max = ?1_000_000),
-    InspectMo.textSize<Blob, Text>(Types.getFileType, min = ?1, max = ?50),
-    InspectMo.requireRole("uploader")
-  ]);
-  inspector.guard("upload_file",[
-    InspectMo.customCheck<(Blob, Text)>(func(args: CustomCheckArgs<(Blob, Text)>): GuardResult { 
-      let (_, fileType) = args.args;
-      if (isValidFileType(fileType)) { #ok }
-      else { #err("Invalid file type: " # fileType) }
-    })
-  ]);
+  inspector.inspect(inspector.createMethodGuardInfo<(Blob, Text)>(
+    "upload_file",
+    false,
+    [
+      InspectMo.blobSize<MessageAccessor, (Blob, Text)>(func(args: (Blob, Text)): Blob { args.0 }, min = ?1, max = ?1_000_000),
+      InspectMo.textSize<MessageAccessor, (Blob, Text)>(func(args: (Blob, Text)): Text { args.1 }, min = ?1, max = ?50),
+      InspectMo.requireRole("uploader")
+    ],
+    func(msg: MessageAccessor): (Blob, Text) {
+      switch (msg) {
+        case (#upload_file(fileData, fileType)) (fileData, fileType);
+        case (_) (Text.encodeUtf8(""), ""); // default fallback
+      }
+    }
+  ));
+  inspector.guard(inspector.createMethodGuardInfo<(Blob, Text)>(
+    "upload_file",
+    false,
+    [
+      InspectMo.customCheck<MessageAccessor, (Blob, Text)>(func(args: InspectMo.CustomCheckArgs<MessageAccessor>): InspectMo.GuardResult { 
+        switch (args.msg) {
+          case (#upload_file(fileData, fileType)) {
+            if (isValidFileType(fileType)) { #ok }
+            else { #err("Invalid file type: " # fileType) }
+          };
+          case (_) { #err("Invalid method") };
+        }
+      })
+    ],
+    func(msg: MessageAccessor): (Blob, Text) {
+      switch (msg) {
+        case (#upload_file(fileData, fileType)) (fileData, fileType);
+        case (_) (Text.encodeUtf8(""), ""); // default fallback
+      }
+    }
+  ));
   public func upload_file(fileData: Blob, fileType: Text): async FileId {
-    switch (inspector.guardCheck("upload_file", msg.caller)) {
+    let guardArgs: InspectMo.InspectArgs<MessageAccessor> = {
+      methodName = "upload_file";
+      caller = msg.caller;
+      arg = to_candid(fileData, fileType);
+      msg = #upload_file(fileData, fileType);
+      isQuery = false;
+      isInspect = false;
+      cycles = ?msg.cycles;
+      deadline = null;
+    };
+    switch (inspector.guardCheck(guardArgs)) {
       case (#ok) { /* continue */ };
       case (#err(msg)) { throw Error.reject(msg) };
     };
@@ -396,10 +440,20 @@ actor DeFiCanister {
   };
 
   // User operations
-  inspector.inspect("transfer", [
-    InspectMo.requirePermission("transfer"),
-    InspectMo.natValue<Principal, Nat>(Types.getTransferAmount, max = ?1_000_000)
-  ]);
+  inspector.inspect(inspector.createMethodGuardInfo<(Principal, Nat)>(
+    "transfer",
+    false,
+    [
+      InspectMo.requirePermission("transfer"),
+      InspectMo.natValue<MessageAccessor, (Principal, Nat)>(func(args: (Principal, Nat)): Nat { args.1 }, max = ?1_000_000)
+    ],
+    func(msg: MessageAccessor): (Principal, Nat) {
+      switch (msg) {
+        case (#transfer(to, amount)) (to, amount);
+        case (_) (Principal.fromText("2vxsx-fae"), 0); // default fallback
+      }
+    }
+  ));
   inspector.guard([
     InspectMo.dynamicAuth<(Principal, Nat)>(func(args: DynamicAuthArgs<(Principal, Nat)>): GuardResult { 
       let (to, amount) = args.args;
@@ -416,15 +470,35 @@ actor DeFiCanister {
   };
 
   // Admin operations
-  inspector.inspect("admin_set_fee", [
-    InspectMo.requireRole("admin"),
-    InspectMo.natValue<Nat>(Types.getFeeAmount, max = ?10_000)
-  ]);
+  inspector.inspect(inspector.createMethodGuardInfo<Nat>(
+    "admin_set_fee",
+    false,
+    [
+      InspectMo.requireRole("admin"),
+      InspectMo.natValue<MessageAccessor, Nat>(func(amount: Nat): Nat { amount }, max = ?10_000)
+    ],
+    func(msg: MessageAccessor): Nat {
+      switch (msg) {
+        case (#admin_set_fee(amount)) amount;
+        case (_) 0; // default fallback
+      }
+    }
+  ));
   //must still do guard because updates via Other canisters don't go through inspect
-  inspector.guard("admin_set_fee", [
-    InspectMo.requireRole("admin"),
-    InspectMo.natValue<Nat>(Types.getFeeAmount, max = ?10_000)
-  ]);
+  inspector.guard(inspector.createMethodGuardInfo<Nat>(
+    "admin_set_fee",
+    false,
+    [
+      InspectMo.requireRole("admin"),
+      InspectMo.natValue<MessageAccessor, Nat>(func(amount: Nat): Nat { amount }, max = ?10_000)
+    ],
+    func(msg: MessageAccessor): Nat {
+      switch (msg) {
+        case (#admin_set_fee(amount)) amount;
+        case (_) 0; // default fallback
+      }
+    }
+  ));
   public func admin_set_fee(newFee: Nat): async () {
     //must still do guard because updates via Other canisters don't go through inspect
       case (#err(msg)) { throw Error.reject(msg) };
@@ -515,7 +589,17 @@ public type GuardResult = {
 ### Runtime Validation
 ```motoko
 public func my_method(arg: T): async () {
-  switch (inspector.guard("my_method", msg.caller)) {
+  let guardArgs: InspectMo.InspectArgs<MessageAccessor> = {
+    methodName = "my_method";
+    caller = msg.caller;
+    arg = to_candid(arg);
+    msg = #my_method(arg);
+    isQuery = false;
+    isInspect = false;
+    cycles = ?msg.cycles;
+    deadline = null;
+  };
+  switch (inspector.guardCheck(guardArgs)) {
     case (#ok) { /* continue with implementation */ };
     case (#err(message)) { 
       // Log error, perform cleanup, etc.
@@ -562,10 +646,20 @@ system func inspect({ caller; arg; msg }) : Bool {
 };
 
 // New approach with Inspect-Mo
-InspectMo.inspect(inspector, "upload", [
-  InspectMo.blobSize<Blob>(Types.getUploadData, max = ?1_000_000),
-  InspectMo.requireAuth()
-]);
+inspector.inspect(inspector.createMethodGuardInfo<Blob>(
+  "upload",
+  false,
+  [
+    InspectMo.blobSize<MessageAccessor, Blob>(func(blob: Blob): Blob { blob }, max = ?1_000_000),
+    InspectMo.requireAuth()
+  ],
+  func(msg: MessageAccessor): Blob {
+    switch (msg) {
+      case (#upload(data)) data;
+      case (_) Text.encodeUtf8(""); // default fallback
+    }
+  }
+));
 ```
 
 This provides better type safety, composability, and maintainability while achieving the same security goals.
