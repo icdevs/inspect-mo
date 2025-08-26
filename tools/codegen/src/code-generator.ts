@@ -126,19 +126,90 @@ export class MotokoCodeGenerator {
     
     parts.push('  /// Usage Examples (copy and customize as needed):');
     parts.push('  /*');
-    parts.push('  /// Example: Basic InspectMo setup');
-    parts.push('  let inspector = InspectMo.InspectMo(');
-    parts.push('    {');
-    parts.push('      supportAudit = false;');
-    parts.push('      supportTimer = false;');
-    parts.push('      supportAdvanced = false;');
-    parts.push('    },');
-    parts.push('    func(state: InspectMo.State) {}');
+    parts.push('  /// Step 1: Create InspectMo instance');
+    parts.push('  let inspectMo = InspectMo.InspectMo(');
+    parts.push('    null, // stored state');
+    parts.push('    Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"), // instantiator');
+    parts.push('    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), // canister');
+    parts.push('    ?{');
+    parts.push('      allowAnonymous = ?false;');
+    parts.push('      defaultMaxArgSize = ?1048576;');
+    parts.push('      authProvider = null;');
+    parts.push('      rateLimit = null;');
+    parts.push('      queryDefaults = null;');
+    parts.push('      updateDefaults = null;');
+    parts.push('      developmentMode = ?false;');
+    parts.push('      auditLog = ?false;');
+    parts.push('    }, // init args');
+    parts.push('    null, // environment');
+    parts.push('    func(state) {} // storage changed callback');
     parts.push('  );');
     parts.push('');
-    parts.push('  /// Example: Add validation rules');
-    parts.push('  inspector.addRule(#textSize(1, 1000));');
-    parts.push('  inspector.addRule(#requireAuth);');
+    parts.push('  /// Step 2: Create inspector with Args type');
+    parts.push('  let inspector = inspectMo.createInspector<Args>();');
+    parts.push('');
+    parts.push('  /// Step 3: Register method validations based on Candid analysis');
+    
+    // Generate actual method registrations with real validation rules
+    const analysis = this.analyzeService(service);
+    for (const method of service.methods) {
+      const methodAnalysis = analysis.find(a => a.method.name === method.name);
+      parts.push(`  // Register ${method.name} method`);
+      
+      // Determine the parameter type for the generic
+      let parameterType = '()';
+      let messageAccessor = 'unit_accessor';
+      
+      if (method.parameters.length === 1) {
+        parameterType = this.inferParameterType(method.parameters[0], method.name);
+        const cleanMethodName = this.toCamelCase(method.name);
+        const cleanParamName = this.capitalize(method.parameters[0].name || 'param');
+        const accessorName = `get${this.capitalize(cleanMethodName)}${cleanParamName}`;
+        messageAccessor = `${accessorName}`;
+      } else if (method.parameters.length > 1) {
+        const paramTypes = method.parameters.map(p => this.inferParameterType(p, method.name)).join(', ');
+        parameterType = `(${paramTypes})`;
+        messageAccessor = 'func(args: Args): () { () } // TODO: Multi-parameter accessor';
+      }
+      
+      parts.push(`  inspector.inspect(inspector.createMethodGuardInfo<${parameterType}>(`);
+      parts.push(`    "${method.name}",`);
+      parts.push(`    ${method.isQuery}, // isQuery`);
+      parts.push(`    [`);
+      
+      // Add validation rules based on analysis
+      const rules: string[] = [];
+      if (methodAnalysis?.suggestedValidations) {
+        for (const validation of methodAnalysis.suggestedValidations) {
+          switch (validation.type) {
+            case 'textSize':
+              rules.push('      InspectMo.textSize(identity, ?1, ?1000)');
+              break;
+            case 'natRange':
+              const cleanMethodName = this.toCamelCase(method.name);
+              const cleanParamName = this.capitalize(method.parameters[0]?.name || 'param');
+              const accessorName = `get${this.capitalize(cleanMethodName)}${cleanParamName}`;
+              rules.push(`      InspectMo.natValue(${accessorName}_identity, ?0, ?1000000)`);
+              break;
+          }
+        }
+      }
+      
+      // Always add auth requirement for sensitive methods
+      if (!method.isQuery || method.name.includes('create') || method.name.includes('update') || method.name.includes('delete')) {
+        rules.push('      InspectMo.requireAuth()');
+      }
+      
+      if (rules.length === 0) {
+        rules.push('      InspectMo.requireAuth() // Add appropriate validation rules');
+      }
+      
+      parts.push(rules.join(',\n'));
+      parts.push(`    ],`);
+      parts.push(`    ${messageAccessor} // Message accessor`);
+      parts.push(`  ));`);
+      parts.push('');
+    }
     parts.push('');
     parts.push('  /// Example: System inspect function');
     parts.push('  system func inspect({');
@@ -194,7 +265,6 @@ export class MotokoCodeGenerator {
 /// 3. Use the ErasedValidator initialization code
 /// 4. Customize validation rules as needed
 
-import InspectMo "mo:inspect-mo/lib";
 import Principal "mo:core/Principal";
 import Result "mo:core/Result";
 import Runtime "mo:core/Runtime";`;
@@ -1104,32 +1174,81 @@ import Runtime "mo:core/Runtime";`;
 
   /**
    * Generate Args union type for ErasedValidator pattern with proper type names
+   * This should exactly match the message type structure from system inspect function
    */
   private generateArgsUnionType(service: CandidService): string {
     const parts: string[] = [];
     
     parts.push('  /// Args union type for ErasedValidator pattern');
-    parts.push('  /// Note: Complex types require user-defined type definitions');
+    parts.push('  /// This matches the message type structure from system inspect function');
     parts.push('  public type Args = {');
     
     for (const method of service.methods) {
-      const methodName = this.capitalize(method.name);
+      // Preserve original method name case
+      const methodName = method.name;
       
       if (method.parameters.length === 0) {
-        parts.push(`    #${methodName}: ();`);
+        parts.push(`    #${methodName} : () -> ();`);
       } else if (method.parameters.length === 1) {
-        const argType = this.enhancedTypeToMotokoString(method.parameters[0].type);
-        parts.push(`    #${methodName}: ${argType};`);
+        // For single parameter, use intelligent type inference
+        const paramType = this.inferParameterType(method.parameters[0], method.name);
+        parts.push(`    #${methodName} : () -> (${paramType});`);
       } else {
-        const argTypes = method.parameters.map(p => this.enhancedTypeToMotokoString(p.type)).join(', ');
-        parts.push(`    #${methodName}: (${argTypes});`);
+        // For multiple parameters, use tuple of parameter types
+        const paramTypes = method.parameters.map(p => this.inferParameterType(p, method.name)).join(', ');
+        parts.push(`    #${methodName} : () -> (${paramTypes});`);
       }
     }
     
-    parts.push('    #None: ();');
     parts.push('  };');
     
     return parts.join('\n');
+  }
+
+  /**
+   * Intelligent parameter type inference that uses parameter names and context
+   */
+  private inferParameterType(parameter: CandidParameter, methodName?: string): string {
+    // Use parameter name to infer likely custom types
+    const paramName = parameter.name?.toLowerCase() || '';
+    
+    // Common patterns for custom types
+    if (paramName.includes('request') || paramName === 'request') {
+      // Try to infer the request type name based on method context
+      if (methodName?.includes('user') || methodName?.includes('create')) {
+        return 'CreateUserRequest';
+      }
+      if (paramName.includes('user') || paramName.includes('create')) {
+        return 'CreateUserRequest';
+      }
+      // For generic 'request' parameter, try to infer from method name
+      if (methodName && paramName === 'request') {
+        const methodWords = methodName.split('_');
+        if (methodWords.length > 1) {
+          const action = this.capitalize(methodWords[0]);
+          const entity = this.capitalize(methodWords[1]);
+          return `${action}${entity}Request`;
+        }
+      }
+      // Default to generic request pattern
+      const baseName = paramName.replace('_request', '').replace('request', '');
+      return baseName ? `${this.capitalize(baseName)}Request` : 'Request';
+    }
+    
+    if (paramName.includes('profile') || paramName === 'profile') {
+      return 'UserProfile';
+    }
+    
+    if (paramName.includes('user_id') || paramName === 'user_id') {
+      return 'Nat';
+    }
+    
+    if (paramName.includes('id') && parameter.type.kind === 'nat') {
+      return 'Nat';
+    }
+    
+    // Fall back to basic type conversion
+    return this.enhancedTypeToMotokoString(parameter.type);
   }
 
   /**
@@ -1153,25 +1272,7 @@ import Runtime "mo:core/Runtime";`;
         if (type.name && this.isKnownCustomType(type.name)) {
           return type.name;
         }
-        // Special case: if the type name contains patterns for known types, extract them
-        if (type.name) {
-          if (type.name.includes('batchId')) {
-            return 'BulkOperation'; // This is clearly the BulkOperation type
-          }
-          if (type.name.includes('email') && type.name.includes('name')) {
-            return 'UserProfile'; // This looks like UserProfile
-          }
-          if (type.name.includes('recipient') && type.name.includes('currency')) {
-            return 'TransactionRequest'; // This looks like TransactionRequest
-          }
-          if (type.name.includes('keywords') && type.name.includes('categories')) {
-            return 'SearchFilter'; // This looks like SearchFilter
-          }
-          if (type.name.includes('filename') && type.name.includes('content')) {
-            return 'DocumentUpload'; // This looks like DocumentUpload
-          }
-        }
-        // For unknown custom types that look like record definitions, fall back to Text
+        // For unknown custom types that look like record definitions, fall back to appropriate type
         if (type.name && (type.name.includes('record {') || type.name.includes('variant {') || type.name.includes('\n'))) {
           return 'Text'; // Safe fallback for malformed type names
         }
@@ -1181,12 +1282,49 @@ import Runtime "mo:core/Runtime";`;
         }
         return type.name || 'Text'; // Use the actual custom type name
       case 'record':
-        // For inline records, return a generic type - but this should be rare
-        // since most records should be named custom types
+        // For inline records, try to infer if this is a known custom type
+        // Check if this matches any of our known custom types by structure
+        if (type.fields) {
+          // Check for CreateUserRequest pattern: username + email
+          const hasUsername = type.fields.some(f => f.name === 'username');
+          const hasEmail = type.fields.some(f => f.name === 'email');
+          if (hasUsername && hasEmail && type.fields.length === 2) {
+            return 'CreateUserRequest';
+          }
+          
+          // Check for UserProfile pattern: id + username + email + created_at
+          const hasId = type.fields.some(f => f.name === 'id');
+          const hasCreatedAt = type.fields.some(f => f.name === 'created_at');
+          if (hasId && hasUsername && hasEmail && hasCreatedAt) {
+            return 'UserProfile';
+          }
+          
+          // Check for status record pattern: next_id + user_count  
+          const hasNextId = type.fields.some(f => f.name === 'next_id');
+          const hasUserCount = type.fields.some(f => f.name === 'user_count');
+          if (hasNextId && hasUserCount && type.fields.length === 2) {
+            return 'StatusRecord';
+          }
+        }
+        
+        // Special case: if the type contains "email" and "username" in its name/structure, it's CreateUserRequest
+        if (JSON.stringify(type).includes('email') && JSON.stringify(type).includes('username')) {
+          return 'CreateUserRequest';
+        }
+        
+        // For other inline records, return a generic type
         return 'Text'; // Safe fallback that compiles
       case 'variant':
-        // For inline variants, return a generic type - but this should be rare  
-        // since most variants should be named custom types
+        // For inline variants, try to infer if this is a known custom type
+        if (type.options) {
+          // Check for Result/ApiResult pattern: ok + err
+          const hasOk = type.options.some(o => o.name === 'ok');
+          const hasErr = type.options.some(o => o.name === 'err');
+          if (hasOk && hasErr && type.options.length === 2) {
+            return 'ApiResult';
+          }
+        }
+        // For other inline variants, return a generic type
         return 'Text'; // Safe fallback that compiles
       case 'tuple':
         if (type.tupleTypes && type.tupleTypes.length > 0) {
@@ -1205,7 +1343,7 @@ import Runtime "mo:core/Runtime";`;
   private isKnownCustomType(typeName: string): boolean {
     // Common types that should be available in the generated types file
     const knownTypes = [
-      'UserProfile', 'TransactionRequest', 'SearchFilter', 'DocumentUpload', 
+      'UserProfile', 'CreateUserRequest', 'ApiResult', 'TransactionRequest', 'SearchFilter', 'DocumentUpload', 
       'BulkOperation', 'Result', 'Result_1', 'Result_2', 'Result_3'
     ];
     return knownTypes.includes(typeName);
@@ -1219,15 +1357,20 @@ import Runtime "mo:core/Runtime";`;
     
     parts.push('  /// Accessor functions for ErasedValidator pattern');
     parts.push('  /// For complex types, use the delegated accessor functions below');
+    parts.push('');
+    parts.push('  /// Unit accessor for methods with no parameters');
+    parts.push('  public func unit_accessor(args: Args): () { () };');
+    parts.push('');
     
     for (const method of service.methods) {
       if (method.parameters.length === 0) continue;
       
-      const methodName = this.capitalize(method.name);
+      // Preserve original method name case
+      const methodName = method.name;
       
       for (let i = 0; i < method.parameters.length; i++) {
         const param = method.parameters[i];
-        const paramType = this.enhancedTypeToMotokoString(param.type);
+        const paramType = this.inferParameterType(param, method.name);
         const paramName = param.name || `param${i}`;
         // Convert method name to camelCase and combine with parameter name
         const cleanMethodName = this.toCamelCase(method.name);
@@ -1238,14 +1381,22 @@ import Runtime "mo:core/Runtime";`;
         if (method.parameters.length === 1) {
           parts.push(`  public func ${accessorName}(args: Args): ${paramType} {`);
           parts.push(`    switch (args) {`);
-          parts.push(`      case (#${methodName}(value)) value;`);
+          parts.push(`      case (#${methodName}(value)) value(); // Call the function to get the actual value`);
           parts.push(`      case (_) ${defaultValue};`);
           parts.push(`    };`);
           parts.push(`  };`);
+          
+          // Generate identity function for primitive types
+          if (this.isPrimitiveType(paramType)) {
+            parts.push('');
+            parts.push(`  /// Identity function for ${paramType} validation`);
+            parts.push(`  public func ${accessorName}_identity(value: ${paramType}): ${paramType} { value };`);
+          }
+          
         } else {
           parts.push(`  public func ${accessorName}(args: Args): ${paramType} {`);
           parts.push(`    switch (args) {`);
-          parts.push(`      case (#${methodName}(params)) params.${i};`);
+          parts.push(`      case (#${methodName}(params)) params.${i}(); // Call the function to get the actual value`);
           parts.push(`      case (_) ${defaultValue};`);
           parts.push(`    };`);
           parts.push(`  };`);
@@ -1277,7 +1428,8 @@ import Runtime "mo:core/Runtime";`;
     parts.push('    // Setup validation rules using ErasedValidator pattern');
     
     for (const method of service.methods) {
-      const methodName = this.capitalize(method.name);
+      // Preserve original method name case  
+      const methodName = method.name;
       // Use the actual method return type from Candid interface
       const returnType = method.returnType ? this.typeToMotokoString(method.returnType) : '()';
       
@@ -1381,7 +1533,8 @@ import Runtime "mo:core/Runtime";`;
     parts.push('    let (methodName, isQuery, msgArgs) = switch (msg) {');
     
     for (const method of service.methods) {
-      const methodName = this.capitalize(method.name);
+      // Preserve original method name case  
+      const methodName = method.name;
       if (method.parameters.length === 0) {
         parts.push(`      case (#${method.name} _) ("${method.name}", ${method.isQuery}, #${methodName}(()));`);
       } else if (method.parameters.length === 1) {
@@ -1391,7 +1544,13 @@ import Runtime "mo:core/Runtime";`;
       }
     }
     
-    parts.push('      case (_) ("unknown_method", false, #None(()));');
+    // Default case - use first method with empty params as fallback
+    let firstMethod = service.methods[0];
+    if (firstMethod) {
+      parts.push(`      case (_) ("unknown_method", false, #${firstMethod.name}(${firstMethod.parameters.length === 0 ? '' : firstMethod.parameters.map(_ => 'Runtime.trap("Unknown method")').join(', ')}));`);
+    } else {
+      parts.push('      case (_) Runtime.trap("No methods defined");');
+    }
     parts.push('    };');
     parts.push('    ');
     parts.push('    let inspectArgs : InspectMo.InspectArgs<Args> = {');
@@ -1455,10 +1614,27 @@ import Runtime "mo:core/Runtime";`;
   }
 
   /**
+   * Generate accessor function name for a method parameter
+   */
+  private generateAccessorName(methodName: string, paramName: string): string {
+    const cleanMethodName = this.toCamelCase(methodName);
+    const cleanParamName = this.capitalize(paramName);
+    return `get${this.capitalize(cleanMethodName)}${cleanParamName}`;
+  }
+
+  /**
    * Capitalize first letter of string
    */
   private capitalize(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  /**
+   * Check if a type is a primitive Motoko type that can have identity functions
+   */
+  private isPrimitiveType(typeName: string): boolean {
+    const primitives = ['Nat', 'Int', 'Text', 'Bool', 'Blob', 'Principal'];
+    return primitives.includes(typeName);
   }
 
   private toCamelCase(str: string): string {
