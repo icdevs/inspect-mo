@@ -3,7 +3,7 @@
   name = "inspect-mo"
   version = "0.1.0"
   description = "Secure, type-safe validation and authorization for Motoko canisters."
-  repository = "https://github.com/icdevs/inspect-mo"
+  repository = "https://github.com/icdevsorg/inspect-mo"
   keywords = ["motoko","validation","authorization","inspect","guard"]
 
 [dependencies]
