@@ -1,6 +1,7 @@
 import Bench "mo:bench";
 import Nat "mo:base/Nat";
 import Iter "mo:base/Iter";
+import Text "mo:base/Text";
 import InspectMo "../src/lib";
 
 module {
@@ -20,7 +21,7 @@ module {
 
     bench.runner(func(row, col) {
       switch (Nat.fromText(col)) {
-        case null { return }; 
+        case null { }; 
         case (?n) {
           
           // Test data

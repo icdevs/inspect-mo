@@ -1,7 +1,6 @@
 import Bench "mo:bench";
-import Nat "mo:core/Nat";
-import Iter "mo:core/Iter";
-import Sample "../src";
+import Nat "mo:base/Nat";
+import Iter "mo:base/Iter";
 
 module {
   public func init() : Bench.Bench {
@@ -14,15 +13,17 @@ module {
     bench.cols(["10", "10000", "1000000"]);
 
     bench.runner(func(row, col) {
-      let ?n = Nat.fromText(col);
-
-      // Vector
-      if (row == "test") {
-        
-        for (i in Iter.range(1, n)) {
-          ignore Sample.test();
+      switch (Nat.fromText(col)) {
+        case null { return };
+        case (?n) {
+          // Simple test
+          if (row == "test") {
+            for (i in Iter.range(1, n)) {
+              ignore i; // Simple operation for benchmarking
+            };
+          }
         };
-      }
+      };
     });
 
     bench;
