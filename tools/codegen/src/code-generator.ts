@@ -55,20 +55,25 @@ export class MotokoCodeGenerator {
         }
       }
 
-      // Generate the types file path
-      const outputDir = path.dirname(outputPath);
+  // Generate the types file path (ensure absolute)
+  const absOutputPath = path.resolve(outputPath);
+  const outputDir = path.dirname(absOutputPath);
       const baseName = path.basename(outputPath, '.mo');
       const typesFileName = `${baseName}_types.mo`;
       const typesFilePath = path.join(outputDir, typesFileName);
 
       // Ensure the output directory exists (handles absolute -o like /src/generated/...)
       if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
+        try {
+          fs.mkdirSync(outputDir, { recursive: true });
+        } catch (e) {
+          throw new Error(`Failed to create directory '${outputDir}': ${e}`);
+        }
       }
 
       // Write the types file
       const typesContent = typeDefinitions.join('\n');
-      fs.writeFileSync(typesFilePath, typesContent, 'utf-8');
+  fs.writeFileSync(typesFilePath, typesContent, 'utf-8');
       
       console.log(`📄 Generated types file: ${typesFilePath}`);
       
@@ -168,13 +173,19 @@ export class MotokoCodeGenerator {
       let messageAccessor = 'unit_accessor';
       
       if (method.parameters.length === 1) {
-        parameterType = this.inferParameterType(method.parameters[0], method.name);
+        parameterType = this.inferParameterType(
+          method.parameters[0],
+          method.name,
+          service.typeDefinitions || new Map()
+        );
         const cleanMethodName = this.toCamelCase(method.name);
         const cleanParamName = this.capitalize(method.parameters[0].name || 'param');
         const accessorName = `get${this.capitalize(cleanMethodName)}${cleanParamName}`;
         messageAccessor = `${accessorName}`;
       } else if (method.parameters.length > 1) {
-        const paramTypes = method.parameters.map(p => this.inferParameterType(p, method.name)).join(', ');
+        const paramTypes = method.parameters
+          .map(p => this.inferParameterType(p, method.name, service.typeDefinitions || new Map()))
+          .join(', ');
         parameterType = `(${paramTypes})`;
         messageAccessor = 'func(args: Args): () { () } // TODO: Multi-parameter accessor';
       }
@@ -224,14 +235,14 @@ export class MotokoCodeGenerator {
     parts.push('    caller : Principal;');
     parts.push('    msg : {');
     
-    for (const method of service.methods) {
+  for (const method of service.methods) {
       if (method.parameters.length === 0) {
         parts.push(`      #${method.name} : () -> ();`);
       } else if (method.parameters.length === 1) {
-        const paramType = this.enhancedTypeToMotokoString(method.parameters[0].type);
+    const paramType = this.enhancedTypeToMotokoString(method.parameters[0].type, service.typeDefinitions || new Map());
         parts.push(`      #${method.name} : () -> (${paramType});`);
       } else {
-        const paramTypes = method.parameters.map(p => this.enhancedTypeToMotokoString(p.type)).join(', ');
+    const paramTypes = method.parameters.map(p => this.enhancedTypeToMotokoString(p.type, service.typeDefinitions || new Map())).join(', ');
         parts.push(`      #${method.name} : () -> (${paramTypes});`);
       }
     }
@@ -483,16 +494,10 @@ import Runtime "mo:core/Runtime";`;
     const aliases: string[] = [];
     const typeDefinitions = service.typeDefinitions || new Map();
     
-    // Common types that might exist
-    const commonTypes = [
-      'UserProfile', 'TransactionRequest', 'SearchFilter', 'DocumentUpload', 
-      'BulkOperation', 'Result', 'Result_1', 'Result_2', 'Result_3',
-      'User', 'CreateUserRequest', 'UserStats'
-    ];
-    
-    // Only add aliases for types that actually exist in the type definitions
-    for (const typeName of commonTypes) {
-      if (typeDefinitions.has(typeName)) {
+    // Add aliases for all parsed type definitions, but keep it small and safe
+    const names = Array.from(typeDefinitions.keys());
+    for (const typeName of names) {
+      if (this.isValidTypeName(typeName)) {
         aliases.push(`  public type ${typeName} = Types.${typeName};`);
       }
     }
@@ -759,7 +764,9 @@ import Runtime "mo:core/Runtime";`;
 
     // Generate variant type for all methods
     for (const method of service.methods) {
-      const paramTypes = method.parameters.map(p => this.typeToMotokoString(p.type)).join(', ');
+      const paramTypes = method.parameters
+        .map(p => this.enhancedTypeToMotokoString(p.type, service.typeDefinitions || new Map()))
+        .join(', ');
       const params = paramTypes ? `(${paramTypes})` : '()';
       parts.push(`    #${method.name} : ${params};`);
     }
@@ -857,7 +864,7 @@ import Runtime "mo:core/Runtime";`;
     
     for (const method of updateMethods) {
       const analysis = this.analyzeMethod(method);
-      const argsType = this.generateMethodArgsType(method);
+  const argsType = this.generateMethodArgsType(method, service.typeDefinitions || new Map());
       
       parts.push(`  // Guard helper for ${method.name}`);
       parts.push(`  public func guard${this.capitalize(method.name)}(args: ${argsType}, caller: Principal) : Result.Result<(), Text> {`);
@@ -881,17 +888,17 @@ import Runtime "mo:core/Runtime";`;
   /**
    * Generate the proper args type for a method's parameters
    */
-  private generateMethodArgsType(method: CandidMethod): string {
+  private generateMethodArgsType(method: CandidMethod, defs?: Map<string, CandidType>): string {
     if (method.parameters.length === 0) {
       return '()';
     }
     
     if (method.parameters.length === 1) {
-      return this.typeToMotokoString(method.parameters[0].type);
+      return this.enhancedTypeToMotokoString(method.parameters[0].type, defs || new Map());
     }
     
     // Multiple parameters - create a tuple
-    const paramTypes = method.parameters.map(p => this.typeToMotokoString(p.type));
+  const paramTypes = method.parameters.map(p => this.enhancedTypeToMotokoString(p.type, defs || new Map()));
     return `(${paramTypes.join(', ')})`;
   }
 
@@ -1185,6 +1192,7 @@ import Runtime "mo:core/Runtime";`;
    */
   private generateArgsUnionType(service: CandidService): string {
     const parts: string[] = [];
+    const defs = service.typeDefinitions || new Map<string, CandidType>();
     
     parts.push('  /// Args union type for ErasedValidator pattern');
     parts.push('  /// This matches the message type structure from system inspect function');
@@ -1198,11 +1206,11 @@ import Runtime "mo:core/Runtime";`;
         parts.push(`    #${methodName} : () -> ();`);
       } else if (method.parameters.length === 1) {
         // For single parameter, use intelligent type inference
-        const paramType = this.inferParameterType(method.parameters[0], method.name);
+        const paramType = this.inferParameterType(method.parameters[0], method.name, defs);
         parts.push(`    #${methodName} : () -> (${paramType});`);
       } else {
         // For multiple parameters, use tuple of parameter types
-        const paramTypes = method.parameters.map(p => this.inferParameterType(p, method.name)).join(', ');
+        const paramTypes = method.parameters.map(p => this.inferParameterType(p, method.name, defs)).join(', ');
         parts.push(`    #${methodName} : () -> (${paramTypes});`);
       }
     }
@@ -1215,53 +1223,20 @@ import Runtime "mo:core/Runtime";`;
   /**
    * Intelligent parameter type inference that uses parameter names and context
    */
-  private inferParameterType(parameter: CandidParameter, methodName?: string): string {
-    // Use parameter name to infer likely custom types
-    const paramName = parameter.name?.toLowerCase() || '';
-    
-    // Common patterns for custom types
-    if (paramName.includes('request') || paramName === 'request') {
-      // Try to infer the request type name based on method context
-      if (methodName?.includes('user') || methodName?.includes('create')) {
-        return 'CreateUserRequest';
-      }
-      if (paramName.includes('user') || paramName.includes('create')) {
-        return 'CreateUserRequest';
-      }
-      // For generic 'request' parameter, try to infer from method name
-      if (methodName && paramName === 'request') {
-        const methodWords = methodName.split('_');
-        if (methodWords.length > 1) {
-          const action = this.capitalize(methodWords[0]);
-          const entity = this.capitalize(methodWords[1]);
-          return `${action}${entity}Request`;
-        }
-      }
-      // Default to generic request pattern
-      const baseName = paramName.replace('_request', '').replace('request', '');
-      return baseName ? `${this.capitalize(baseName)}Request` : 'Request';
-    }
-    
-    if (paramName.includes('profile') || paramName === 'profile') {
-      return 'UserProfile';
-    }
-    
-    if (paramName.includes('user_id') || paramName === 'user_id') {
-      return 'Nat';
-    }
-    
-    if (paramName.includes('id') && parameter.type.kind === 'nat') {
-      return 'Nat';
-    }
-    
-    // Fall back to basic type conversion
-    return this.enhancedTypeToMotokoString(parameter.type);
+  private inferParameterType(
+    parameter: CandidParameter,
+    _methodName?: string,
+    typeDefinitions?: Map<string, CandidType>
+  ): string {
+    // Strictly derive the type from the parsed Candid type; do not guess from names
+    return this.enhancedTypeToMotokoString(parameter.type, typeDefinitions);
   }
 
   /**
    * Enhanced type conversion that preserves custom type names
    */
-  private enhancedTypeToMotokoString(type: CandidType): string {
+  private enhancedTypeToMotokoString(type: CandidType, typeDefinitions?: Map<string, CandidType>): string {
+    const defs = typeDefinitions || new Map<string, CandidType>();
     switch (type.kind) {
       case 'text': return 'Text';
       case 'nat': return 'Nat';
@@ -1271,76 +1246,30 @@ import Runtime "mo:core/Runtime";`;
       case 'principal': return 'Principal';
       case 'null': return '()';
       case 'vec':
-        return `[${type.inner ? this.enhancedTypeToMotokoString(type.inner) : 'Text'}]`;
+        return `[${type.inner ? this.enhancedTypeToMotokoString(type.inner, defs) : 'Blob'}]`;
       case 'opt':
-        return `?${type.inner ? this.enhancedTypeToMotokoString(type.inner) : 'Text'}`;
+        return `?${type.inner ? this.enhancedTypeToMotokoString(type.inner, defs) : 'Blob'}`;
       case 'custom':
-        // Use the actual custom type name - these should be available as type aliases
-        if (type.name && this.isKnownCustomType(type.name)) {
-          return type.name;
-        }
-        // For unknown custom types that look like record definitions, fall back to appropriate type
-        if (type.name && (type.name.includes('record {') || type.name.includes('variant {') || type.name.includes('\n'))) {
-          return 'Text'; // Safe fallback for malformed type names
-        }
-        // For simple custom type names that aren't in our known list, assume they're valid
         if (type.name && this.isValidTypeName(type.name)) {
           return type.name;
         }
-        return type.name || 'Text'; // Use the actual custom type name
-      case 'record':
-        // For inline records, try to infer if this is a known custom type
-        // Check if this matches any of our known custom types by structure
-        if (type.fields) {
-          // Check for CreateUserRequest pattern: username + email
-          const hasUsername = type.fields.some(f => f.name === 'username');
-          const hasEmail = type.fields.some(f => f.name === 'email');
-          if (hasUsername && hasEmail && type.fields.length === 2) {
-            return 'CreateUserRequest';
-          }
-          
-          // Check for UserProfile pattern: id + username + email + created_at
-          const hasId = type.fields.some(f => f.name === 'id');
-          const hasCreatedAt = type.fields.some(f => f.name === 'created_at');
-          if (hasId && hasUsername && hasEmail && hasCreatedAt) {
-            return 'UserProfile';
-          }
-          
-          // Check for status record pattern: next_id + user_count  
-          const hasNextId = type.fields.some(f => f.name === 'next_id');
-          const hasUserCount = type.fields.some(f => f.name === 'user_count');
-          if (hasNextId && hasUserCount && type.fields.length === 2) {
-            return 'StatusRecord';
-          }
-        }
-        
-        // Special case: if the type contains "email" and "username" in its name/structure, it's CreateUserRequest
-        if (JSON.stringify(type).includes('email') && JSON.stringify(type).includes('username')) {
-          return 'CreateUserRequest';
-        }
-        
-        // For other inline records, return a generic type
-        return 'Text'; // Safe fallback that compiles
-      case 'variant':
-        // For inline variants, try to infer if this is a known custom type
-        if (type.options) {
-          // Check for Result/ApiResult pattern: ok + err
-          const hasOk = type.options.some(o => o.name === 'ok');
-          const hasErr = type.options.some(o => o.name === 'err');
-          if (hasOk && hasErr && type.options.length === 2) {
-            return 'ApiResult';
-          }
-        }
-        // For other inline variants, return a generic type
-        return 'Text'; // Safe fallback that compiles
+        return 'Blob';
+      case 'record': {
+        const name = this.resolveNominalTypeName(type, defs);
+        return name || this.convertCandidTypeToMotoko(type, defs);
+      }
+      case 'variant': {
+        const name = this.resolveNominalTypeName(type, defs);
+        return name || this.convertCandidTypeToMotoko(type, defs);
+      }
       case 'tuple':
         if (type.tupleTypes && type.tupleTypes.length > 0) {
-          const types = type.tupleTypes.map(t => this.enhancedTypeToMotokoString(t));
+          const types = type.tupleTypes.map(t => this.enhancedTypeToMotokoString(t, defs));
           return `(${types.join(', ')})`;
         }
         return '()';
       default:
-        return 'Text';
+        return 'Blob';
     }
   }
 
@@ -1348,12 +1277,72 @@ import Runtime "mo:core/Runtime";`;
    * Check if a type name is a known custom type that should be available
    */
   private isKnownCustomType(typeName: string): boolean {
-    // Common types that should be available in the generated types file
-    const knownTypes = [
-      'UserProfile', 'CreateUserRequest', 'ApiResult', 'TransactionRequest', 'SearchFilter', 'DocumentUpload', 
-      'BulkOperation', 'Result', 'Result_1', 'Result_2', 'Result_3'
-    ];
-    return knownTypes.includes(typeName);
+  // Known types are exactly those present in the parsed definitions; callers gate via typeDefinitions
+  return true;
+  }
+
+  /**
+   * Try to resolve an inline record/variant/tuple to a nominal typedef name
+   */
+  private resolveNominalTypeName(type: CandidType, typeDefinitions: Map<string, CandidType>): string | null {
+    for (const [name, def] of typeDefinitions.entries()) {
+      if (this.equalsCandidTypes(type, def) && this.isValidTypeName(name)) {
+        return name;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Structural equality for CandidType trees
+   */
+  private equalsCandidTypes(a: CandidType, b: CandidType): boolean {
+    if (a.kind !== b.kind) return false;
+    switch (a.kind) {
+      case 'text':
+      case 'nat':
+      case 'int':
+      case 'bool':
+      case 'blob':
+      case 'principal':
+      case 'null':
+        return true;
+      case 'custom':
+        return a.name === b.name;
+      case 'vec':
+        return (!!a.inner) === (!!b.inner) && (!a.inner || this.equalsCandidTypes(a.inner as CandidType, (b as any).inner));
+      case 'opt':
+        return (!!a.inner) === (!!b.inner) && (!a.inner || this.equalsCandidTypes(a.inner as CandidType, (b as any).inner));
+      case 'tuple':
+        if (!a.tupleTypes || !(b as any).tupleTypes || a.tupleTypes.length !== (b as any).tupleTypes.length) return false;
+        for (let i = 0; i < a.tupleTypes.length; i++) {
+          if (!this.equalsCandidTypes(a.tupleTypes[i], (b as any).tupleTypes[i])) return false;
+        }
+        return true;
+      case 'record':
+        if (!a.fields || !(b as any).fields || a.fields.length !== (b as any).fields.length) return false;
+        for (let i = 0; i < a.fields.length; i++) {
+          const fa = a.fields[i]!;
+          const fb = (b as any).fields[i]!;
+          if ((fa.name || '') !== (fb.name || '')) return false;
+          if (!this.equalsCandidTypes(fa.type, fb.type)) return false;
+        }
+        return true;
+      case 'variant':
+        if (!a.options || !(b as any).options || a.options.length !== (b as any).options.length) return false;
+        for (let i = 0; i < a.options.length; i++) {
+          const oa = a.options[i]!;
+          const ob = (b as any).options[i]!;
+          if (oa.name !== ob.name) return false;
+          const at = oa.type as CandidType | undefined;
+          const bt = ob.type as CandidType | undefined;
+          if (!!at !== !!bt) return false;
+          if (at && bt && !this.equalsCandidTypes(at, bt)) return false;
+        }
+        return true;
+      default:
+        return false;
+    }
   }
 
   /**
@@ -1376,8 +1365,8 @@ import Runtime "mo:core/Runtime";`;
       const methodName = method.name;
       
       for (let i = 0; i < method.parameters.length; i++) {
-        const param = method.parameters[i];
-        const paramType = this.inferParameterType(param, method.name);
+  const param = method.parameters[i];
+  const paramType = this.inferParameterType(param, method.name, service.typeDefinitions || new Map());
         const paramName = param.name || `param${i}`;
         // Convert method name to camelCase and combine with parameter name
         const cleanMethodName = this.toCamelCase(method.name);
@@ -1403,7 +1392,7 @@ import Runtime "mo:core/Runtime";`;
         } else {
           parts.push(`  public func ${accessorName}(args: Args): ${paramType} {`);
           parts.push(`    switch (args) {`);
-          parts.push(`      case (#${methodName}(params)) params.${i}(); // Call the function to get the actual value`);
+          parts.push(`      case (#${methodName}(params)) params().${i}; // Call the function to get the tuple, then select index ${i}`);
           parts.push(`      case (_) ${defaultValue};`);
           parts.push(`    };`);
           parts.push(`  };`);
@@ -1463,7 +1452,7 @@ import Runtime "mo:core/Runtime";`;
       } else if (method.parameters.length === 1) {
         // Single parameter
         parts.push(`            // Extract single parameter: ${method.parameters[0].name || 'param'}`);
-        parts.push(`            let param = params;`);
+        parts.push(`            let param = params();`);
         if (returnType === '()') {
           parts.push(`            // Add your validation/processing logic here`);
           parts.push(`            ()`);
@@ -1476,7 +1465,7 @@ import Runtime "mo:core/Runtime";`;
         parts.push(`            // Extract multiple parameters`);
         for (let i = 0; i < method.parameters.length; i++) {
           const param = method.parameters[i];
-          parts.push(`            let ${param.name || `param${i}`} = params.${i};`);
+          parts.push(`            let ${param.name || `param${i}`} = params().${i};`);
         }
         if (returnType === '()') {
           parts.push(`            // Add your validation/processing logic here`);
@@ -1527,10 +1516,12 @@ import Runtime "mo:core/Runtime";`;
       if (method.parameters.length === 0) {
         parts.push(`      #${method.name} : ();`);
       } else if (method.parameters.length === 1) {
-        const paramType = this.typeToMotokoString(method.parameters[0].type);
+        const paramType = this.enhancedTypeToMotokoString(method.parameters[0].type, service.typeDefinitions || new Map());
         parts.push(`      #${method.name} : (${paramType});`);
       } else {
-        const paramTypes = method.parameters.map(p => this.typeToMotokoString(p.type)).join(', ');
+        const paramTypes = method.parameters
+          .map(p => this.enhancedTypeToMotokoString(p.type, service.typeDefinitions || new Map()))
+          .join(', ');
         parts.push(`      #${method.name} : (${paramTypes});`);
       }
     }

@@ -36,3 +36,4 @@ tools/codegen/dist/
 tools/codegen/package-lock.json
 tools/codegen/debug-*.js
 
+tools/codegen/temp_working/

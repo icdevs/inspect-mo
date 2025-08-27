@@ -69,10 +69,17 @@ program
     console.log('🔧 Generating InspectMo boilerplate...');
     
     const generator = new MotokoCodeGenerator();
+    // Resolve output path and guard against accidental root '/src/...'
+    const resolvedOutput = resolve(process.cwd(), options.output);
+    if (options.output.startsWith('/') && options.output.startsWith('/src/')) {
+      console.error(`❌ Output path points to '/src/...', which is the filesystem root. Use a relative path like 'src/generated/inspect.mo' or an absolute path inside your project (e.g., '${resolve(process.cwd(), 'src/generated/inspect.mo')}').`);
+      process.exit(1);
+    }
+
     const context = {
       serviceName: 'GeneratedService',
       service: parseResult.service,
-      outputPath: options.output,
+      outputPath: resolvedOutput,
       options: generationOptions,
       typeDefinitions: parseResult.typeDefinitions,
       recursiveTypes: new Set(parseResult.recursiveTypes || [])
@@ -82,13 +89,13 @@ program
     
     // Write output file
     try {
-      // Ensure parent directory exists
-      const outDir = dirname(options.output);
+  // Ensure parent directory exists
+  const outDir = dirname(resolvedOutput);
       if (!existsSync(outDir)) {
         mkdirSync(outDir, { recursive: true });
       }
-      writeFileSync(options.output, generatedCode, 'utf-8');
-      console.log(`✅ Generated code written to: ${options.output}`);
+  writeFileSync(resolvedOutput, generatedCode, 'utf-8');
+  console.log(`✅ Generated code written to: ${resolvedOutput}`);
     } catch (error) {
       console.error(`❌ Failed to write output file: ${error}`);
       process.exit(1);
