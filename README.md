@@ -39,12 +39,43 @@ Inspect-Mo is a comprehensive validation and authorization framework for Motoko 
 
 ---
 
-## 🔧 Local code generation
+## 🔧 Code generation (CLI)
 
-This repo keeps codegen local for now. Run it before `dfx build` if you change any `.did` files:
+Use the InspectMo Codegen CLI to generate boilerplate from your Candid (.did) files. Re-run after any interface changes.
 
-- Generate from discovered .did files into `src/generated/`:
-  - `npm run codegen`
+Install options:
+- One-off (no install):
+   ```bash
+   npx @icdevs-org/inspectmo@latest --help
+   ```
+- Global install (optional):
+   ```bash
+   npm i -g @icdevs-org/inspectmo
+   inspectmo --help
+   ```
+
+Common commands:
+- Generate from a specific .did file:
+   ```bash
+   inspectmo generate path/to/service.did -o src/generated/service-inspect.mo
+   ```
+- Discover .did files and generate into `src/generated/`:
+   ```bash
+   inspectmo discover . --generate --output src/generated/
+   ```
+- Analyze (no code output):
+   ```bash
+   inspectmo analyze path/to/service.did
+   ```
+- DFX build hooks (DFX only):
+   ```bash
+   inspectmo install-hooks . --output src/generated/
+   inspectmo status .
+   ```
+
+Notes:
+- `mops.toml` does not support prebuild hooks; only DFX integration is supported.
+- Generated Motoko modules are not committed; re-run codegen after pulling changes that affect interfaces.
 
 ## Limitations in v0.1.0
 

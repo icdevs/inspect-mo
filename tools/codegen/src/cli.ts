@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * CLI tool for InspectMo code generation
  */
@@ -14,7 +15,7 @@ import { GenerationOptions } from './types';
 const program = new Command();
 
 program
-  .name('inspect-mo-generate')
+  .name('inspectmo')
   .description('Generate InspectMo boilerplate from Candid interface files')
   .version('1.0.0');
 

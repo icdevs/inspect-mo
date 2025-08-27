@@ -17,6 +17,7 @@ map = "9.0.1"
 icrc10-mo = "0.0.1"
 stable-local-log = "0.1.1"
 
+
 [toolchain]
 moc = "0.15.1"
 
