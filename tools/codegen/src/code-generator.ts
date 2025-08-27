@@ -12,6 +12,7 @@ import {
   ValidationSuggestion
 } from './types';
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 
 export class MotokoCodeGenerator {
@@ -24,8 +25,9 @@ export class MotokoCodeGenerator {
       // Convert to absolute path to avoid working directory issues
       const absolutePath = path.resolve(candidFilePath);
       
-      // Use didc to generate Motoko bindings
-      const didcOutput = execSync(`didc bind --target mo "${absolutePath}"`, { 
+  // Use didc to generate Motoko bindings (allow overriding path via DIDC env)
+  const didcBin = process.env.DIDC || 'didc';
+  const didcOutput = execSync(`${didcBin} bind --target mo "${absolutePath}"`, { 
         encoding: 'utf8'
       });
 
@@ -59,9 +61,14 @@ export class MotokoCodeGenerator {
       const typesFileName = `${baseName}_types.mo`;
       const typesFilePath = path.join(outputDir, typesFileName);
 
+      // Ensure the output directory exists (handles absolute -o like /src/generated/...)
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
       // Write the types file
       const typesContent = typeDefinitions.join('\n');
-      require('fs').writeFileSync(typesFilePath, typesContent, 'utf-8');
+      fs.writeFileSync(typesFilePath, typesContent, 'utf-8');
       
       console.log(`📄 Generated types file: ${typesFilePath}`);
       

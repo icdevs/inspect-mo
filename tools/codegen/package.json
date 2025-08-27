@@ -1,6 +1,6 @@
 {
   "name": "@icdevs-org/inspectmo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Code generation tools for InspectMo library - Candid parser approach",
   "main": "dist/index.js",
   "bin": {

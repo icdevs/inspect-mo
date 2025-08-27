@@ -79,8 +79,10 @@ npm link
 
 ## Troubleshooting
 
-- EACCES on `npm link` or `npm i -g` on macOS: use `npx inspectmo@latest`, or set an npm user prefix as shown above.
+- EACCES on `npm link` or `npm i -g` on macOS: use `npx @icdevs-org/inspectmo@latest`, or set an npm user prefix as shown above.
 - Not generating files: ensure the input `.did` path exists and the output directory is writable.
+- didc not found or no types generated: install didc and ensure it’s on PATH, or specify a custom path via an environment variable:
+  - `DIDC=/opt/homebrew/bin/didc inspectmo generate path/to/service.did -o src/generated/service-inspect.mo`
 
 ## License
 

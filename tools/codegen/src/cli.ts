@@ -5,7 +5,7 @@
 
 import { Command } from 'commander';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
-import { join, basename, relative, resolve } from 'path';
+import { join, basename, relative, resolve, dirname } from 'path';
 import { parseCandidFile } from './candid-parser';
 import { MotokoCodeGenerator } from './code-generator';
 import { SourceAnalyzer } from './source-analyzer';
@@ -82,6 +82,11 @@ program
     
     // Write output file
     try {
+      // Ensure parent directory exists
+      const outDir = dirname(options.output);
+      if (!existsSync(outDir)) {
+        mkdirSync(outDir, { recursive: true });
+      }
       writeFileSync(options.output, generatedCode, 'utf-8');
       console.log(`✅ Generated code written to: ${options.output}`);
     } catch (error) {
