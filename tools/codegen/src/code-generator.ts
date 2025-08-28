@@ -187,7 +187,16 @@ export class MotokoCodeGenerator {
           .map(p => this.inferParameterType(p, method.name, service.typeDefinitions || new Map()))
           .join(', ');
         parameterType = `(${paramTypes})`;
-        messageAccessor = 'func(args: Args): () { () } // TODO: Multi-parameter accessor';
+        const unionCase = `#${method.name}`;
+        // Create a message accessor that returns the full tuple, so validators can pick components
+        messageAccessor = `func(args: Args): (${paramTypes}) {
+    switch (args) {
+      case (${unionCase}(params)) params();
+      case (_) ${method.parameters.map((p) => this.getDefaultValueForType(this.inferParameterType(p, method.name, service.typeDefinitions || new Map()))).length === 1
+          ? this.getDefaultValueForType(this.inferParameterType(method.parameters[0], method.name, service.typeDefinitions || new Map()))
+          : `(${method.parameters.map((p) => this.getDefaultValueForType(this.inferParameterType(p, method.name, service.typeDefinitions || new Map()))).join(', ')})`}
+    }
+  }`;
       }
       
       parts.push(`  inspector.inspect(inspector.createMethodGuardInfo<${parameterType}>(`);
@@ -195,7 +204,7 @@ export class MotokoCodeGenerator {
       parts.push(`    ${method.isQuery}, // isQuery`);
       parts.push(`    [`);
       
-      // Add validation rules based on analysis
+      // Add validation rules based on analysis and primitive params
       const rules: string[] = [];
       if (methodAnalysis?.suggestedValidations) {
         for (const validation of methodAnalysis.suggestedValidations) {
@@ -209,6 +218,27 @@ export class MotokoCodeGenerator {
               const accessorName = `get${this.capitalize(cleanMethodName)}${cleanParamName}`;
               rules.push(`      InspectMo.natValue(${accessorName}_identity, ?0, ?1000000)`);
               break;
+          }
+        }
+      }
+
+      // Emit identity-based rules for each primitive parameter (safe defaults)
+      for (let i = 0; i < method.parameters.length; i++) {
+        const p = method.parameters[i];
+        const pType = this.inferParameterType(p, method.name, service.typeDefinitions || new Map());
+        const paramName = p.name || `param${i}`;
+        const accName = `get${this.capitalize(this.toCamelCase(method.name))}${this.capitalize(paramName)}`;
+        if (this.isPrimitiveType(pType)) {
+          if (pType === 'Nat') {
+            rules.push(`      InspectMo.natValue(${accName}_identity, ?0, null)`);
+          } else if (pType === 'Int') {
+            rules.push(`      InspectMo.intValue(${accName}_identity, null, null)`);
+          } else if (pType === 'Text') {
+            rules.push(`      InspectMo.textSize(${accName}_identity, ?0, ?10000)`);
+          } else if (pType === 'Blob') {
+            rules.push(`      InspectMo.blobSize(${accName}_identity, ?0, ?1048576)`);
+          } else if (pType === 'Principal') {
+            rules.push(`      InspectMo.requireAuth()`);
           }
         }
       }
@@ -1396,6 +1426,11 @@ import Runtime "mo:core/Runtime";`;
           parts.push(`      case (_) ${defaultValue};`);
           parts.push(`    };`);
           parts.push(`  };`);
+          if (this.isPrimitiveType(paramType)) {
+            parts.push('');
+            parts.push(`  /// Identity function for ${paramType} validation`);
+            parts.push(`  public func ${accessorName}_identity(value: ${paramType}): ${paramType} { value };`);
+          }
         }
         parts.push('');
       }
@@ -1594,7 +1629,7 @@ import Runtime "mo:core/Runtime";`;
       case 'int64': return '0';
       case 'bool': return 'false';
       case 'float': return '0.0';
-      case 'blob': return '""';
+      case 'blob': return '"\\00" : Blob';
       case 'principal': return 'Principal.fromText("2vxsx-fae")';
       case 'userrecord':
       case 'uservariant':

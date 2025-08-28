@@ -54,24 +54,41 @@ export function parseCandidContent(content: string): ParseResult {
 
     parseTypeDefinitions(cleanContent, context);
 
-    // Extract service definition - handle both direct service and actor class patterns
-    let serviceMatch = cleanContent.match(/service\s*:\s*\{([\s\S]*)\}/);
+    // Extract service definition - handle both direct service and actor class patterns using brace-depth parsing
+    let serviceBody: string | null = null;
     let isActorClass = false;
     let serviceTypeName: string | null = null;
-    
-    if (!serviceMatch) {
-      // Try actor class pattern: service : (...) -> ServiceType
+
+    // Direct service pattern: service : { ... }
+    const directServiceIdx = cleanContent.search(/service\s*:\s*\{/);
+    if (directServiceIdx !== -1) {
+      const braceStart = cleanContent.indexOf('{', directServiceIdx);
+      if (braceStart !== -1) {
+        const extracted = extractBalancedBlock(cleanContent, braceStart);
+        if (extracted) {
+          serviceBody = extracted.block;
+        }
+      }
+    }
+
+    if (!serviceBody) {
+      // Actor class pattern: service : (...) -> ServiceType
       const actorClassMatch = cleanContent.match(/service\s*:\s*\([^)]*\)\s*->\s*(\w+)/);
       if (actorClassMatch) {
         isActorClass = true;
         serviceTypeName = actorClassMatch[1];
-        
-        // Find the service type definition
-        const serviceTypePattern = new RegExp(`type\\s+${serviceTypeName}\\s*=\\s*service\\s*\\{([\\s\\S]*?)\\}`, 'i');
-        const serviceTypeMatch = cleanContent.match(serviceTypePattern);
-        
-        if (serviceTypeMatch) {
-          serviceMatch = [serviceTypeMatch[0], serviceTypeMatch[1]] as RegExpMatchArray;
+
+        // Find the typedef start: type <ServiceTypeName> = service { ... }
+        const typedefRegex = new RegExp(`type\\s+${serviceTypeName}\\s*=\\s*service\\s*\\{`, 'i');
+        const typedefMatch = cleanContent.match(typedefRegex);
+        if (typedefMatch && typedefMatch.index !== undefined) {
+          const braceStart = cleanContent.indexOf('{', typedefMatch.index);
+          if (braceStart !== -1) {
+            const extracted = extractBalancedBlock(cleanContent, braceStart);
+            if (extracted) {
+              serviceBody = extracted.block;
+            }
+          }
         } else {
           return {
             success: false,
@@ -85,8 +102,8 @@ export function parseCandidContent(content: string): ParseResult {
         }
       }
     }
-    
-    if (!serviceMatch) {
+
+    if (!serviceBody) {
       return {
         success: false,
         errors: ['No service definition found'],
@@ -98,11 +115,11 @@ export function parseCandidContent(content: string): ParseResult {
       };
     }
 
-    const serviceContent = serviceMatch[1];
+    const serviceContent = serviceBody;
     const methods: CandidMethod[] = [];
 
-    // Parse methods - split by semicolon and handle each method
-    const methodDeclarations = serviceContent.split(';')
+    // Parse methods - split by semicolon at top-level only (records/variants can contain semicolons)
+    const methodDeclarations = splitMethodDeclarations(serviceContent)
       .map(line => line.trim())
       .filter(line => line && !line.match(/^\s*$/));
     
@@ -160,6 +177,55 @@ export function parseCandidContent(content: string): ParseResult {
   }
 }
 
+// Split service method declarations by ';' but ignore semicolons inside parentheses or braces
+function splitMethodDeclarations(content: string): string[] {
+  const decls: string[] = [];
+  let current = '';
+  let paren = 0;  // () depth
+  let brace = 0;  // {} depth
+  let bracket = 0; // [] depth (rare in candid signatures)
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === '(') paren++;
+    else if (ch === ')') paren = Math.max(0, paren - 1);
+    else if (ch === '{') brace++;
+    else if (ch === '}') brace = Math.max(0, brace - 1);
+    else if (ch === '[') bracket++;
+    else if (ch === ']') bracket = Math.max(0, bracket - 1);
+
+    if (ch === ';' && paren === 0 && brace === 0 && bracket === 0) {
+      const trimmed = current.trim();
+      if (trimmed) decls.push(trimmed);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) decls.push(tail);
+  return decls;
+}
+
+// Extract a balanced {...} block starting at the given '{' index; returns block contents without outer braces and end index
+function extractBalancedBlock(text: string, openIndex: number): { block: string; end: number } | null {
+  if (text[openIndex] !== '{') return null;
+  let depth = 0;
+  for (let i = openIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        const block = text.substring(openIndex + 1, i);
+        return { block, end: i };
+      }
+    }
+  }
+  return null;
+}
+
 // Helper function to split parameters correctly, handling nested structures
 function splitParameters(paramsStr: string): string[] {
   const params: string[] = [];
@@ -189,6 +255,36 @@ function splitParameters(paramsStr: string): string[] {
   }
   
   return params;
+}
+
+function splitRecordFields(fieldsStr: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let depth = 0;
+  
+  for (let i = 0; i < fieldsStr.length; i++) {
+    const char = fieldsStr[i];
+    
+    if (char === '(' || char === '{' || char === '<') {
+      depth++;
+    } else if (char === ')' || char === '}' || char === '>') {
+      depth--;
+    } else if (char === ';' && depth === 0) {
+      if (current.trim()) {
+        fields.push(current.trim());
+      }
+      current = '';
+      continue;
+    }
+    
+    current += char;
+  }
+  
+  if (current.trim()) {
+    fields.push(current.trim());
+  }
+  
+  return fields;
 }
 
 function parseType(typeStr: string, typeDefinitions?: Map<string, string>): CandidType {
@@ -259,7 +355,7 @@ function parseType(typeStr: string, typeDefinitions?: Map<string, string>): Cand
   if (variantMatch) {
     const options: { name: string; type: CandidType | null }[] = [];
     const variantContent = variantMatch[1];
-    const optionParts = splitParameters(variantContent);
+    const optionParts = splitRecordFields(variantContent); // Variants also use semicolons
     
     for (const option of optionParts) {
       const colonIndex = option.indexOf(':');
@@ -375,7 +471,8 @@ function parseTypeWithContext(typeStr: string, context: TypeParsingContext): Can
       const fieldContent = recordMatch[1].trim();
       
       if (fieldContent) {
-        const fieldParts = splitParameters(fieldContent);
+        // Record fields are separated by semicolons, not commas
+        const fieldParts = splitRecordFields(fieldContent);
         
         for (let i = 0; i < fieldParts.length; i++) {
           const field = fieldParts[i].trim();
@@ -413,7 +510,7 @@ function parseTypeWithContext(typeStr: string, context: TypeParsingContext): Can
       const variantContent = variantMatch[1].trim();
       
       if (variantContent) {
-        const optionParts = splitParameters(variantContent);
+        const optionParts = splitRecordFields(variantContent); // Variants use semicolons
         
         for (let i = 0; i < optionParts.length; i++) {
           const option = optionParts[i].trim();
@@ -560,8 +657,8 @@ function parseMethodDeclaration(methodDecl: string, context: TypeParsingContext)
     const paramsPart = cleanSignature.substring(0, arrowIndex).trim();
     const returnPart = cleanSignature.substring(arrowIndex + 2).trim();
     
-    // Extract parameters from (...)
-    const paramsMatch = paramsPart.match(/^\((.*)\)$/);
+    // Extract parameters from (...) - use multiline flag for records spanning multiple lines
+    const paramsMatch = paramsPart.match(/^\(([\s\S]*)\)$/);
     if (!paramsMatch) return null;
     
     const paramsStr = paramsMatch[1].trim();
