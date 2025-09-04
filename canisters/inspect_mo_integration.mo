@@ -4,14 +4,87 @@ import Debug "mo:base/Debug";
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
+import _Int "mo:core/Int";
+import _Time "mo:core/Time";
+import ClassPlus "mo:class-plus";
+import TT "mo:timer-tool";
+import Log "mo:stable-local-log";
+import OVSFixed "mo:ovs-fixed";
 
-import InspectMo "../src/core/inspector";
+import InspectMo "../src/lib";
 
-persistent actor InspectMoIntegration {
+persistent actor {
   
+  var _owner = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+
+  transient let initManager = ClassPlus.ClassPlusInitializationManager(_owner, _owner, true);
+
+  transient let ttInitArgs : ?TT.InitArgList = null;
+
+  // Runtime ICRC85 environment (nullable until enabled by test)
+  transient var icrc85_env : OVSFixed.ICRC85Environment = null;
+
+  private func reportTTExecution(execInfo: TT.ExecutionReport): Bool{
+    Debug.print("INSPECT_INTEGRATION: TimerTool Execution: " # debug_show(execInfo));
+    return false;
+  };
+
+  private func reportTTError(errInfo: TT.ErrorReport) : ?Nat{
+    Debug.print("INSPECT_INTEGRATION: TimerTool Error: " # debug_show(errInfo));
+    return null;
+  };
+
+  var tt_migration_state: TT.State = TT.Migration.migration.initialState;
+
+  transient let tt  = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = ttInitArgs;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        reportExecution = ?reportTTExecution;
+        reportError = ?reportTTError;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      Debug.print("INSPECT_INTEGRATION: Initializing TimerTool");
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    }
+  });
+
+  var localLog_migration_state: Log.State = Log.initialState();
+  transient let localLog = Log.Init<system>({
+    args = ?{
+      min_level = ?#Debug;
+      bufferSize = ?5000;
+    };
+    manager = initManager;
+    initialState = Log.initialState();
+    pullEnvironment = ?(func() : Log.Environment {
+      {
+        tt = tt();
+        advanced = null;
+        onEvict = null;
+      };
+    });
+    onInitialize = null;
+    onStorageChange = func(state: Log.State) {
+      localLog_migration_state := state;
+    };
+  });
+
   // ===== STATE =====
-  private stable var message : Text = "";
-  private stable var inspectLogs : [Text] = [];
+  private var message : Text = "";
+  private var inspectLogs : [Text] = [];
   
   // Args union for ErasedValidator pattern
   type Args = {
@@ -32,21 +105,32 @@ persistent actor InspectMoIntegration {
     auditLog = false;
   };
   
-  transient func createTestInspector() : InspectMo.InspectMo {
-    InspectMo.InspectMo(
-      null, 
-      Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"), 
-      Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"),
-      ?config, 
-      null,
-      func(state: InspectMo.State) {
-        Debug.print("📊 InspectMo State Updated");
-      }
-    )
-  };
+  var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+  transient let inspectMo = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?config;
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      {
+        tt = tt();
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        log = ?localLog();
+      };
+    });
+
+    onInitialize = ?(func (_newClass: InspectMo.InspectMo) : async* () {
+      Debug.print("INSPECT_INTEGRATION: Initializing InspectMo");
+    });
+
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
   
-  private transient let inspectMo = createTestInspector();
-  private transient let validatorInspector = inspectMo.createInspector<Args>();
+  private transient let validatorInspector = inspectMo().createInspector<Args>();
   
   // Configure inspection rules
   private transient let _ = do {

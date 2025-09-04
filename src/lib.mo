@@ -45,6 +45,23 @@ module {
   public let blockIngress = Inspector.blockIngress;
   public let blockAll = Inspector.blockAll;
   
+  // Re-export ICRC16 validation rule builders
+  public let candyType = Inspector.candyType;
+  public let candySize = Inspector.candySize;
+  public let candyDepth = Inspector.candyDepth;
+  public let candyPattern = Inspector.candyPattern;
+  public let candyRange = Inspector.candyRange;
+  public let candyStructure = Inspector.candyStructure;
+  public let propertyExists = Inspector.propertyExists;
+  public let propertyType = Inspector.propertyType;
+  public let propertySize = Inspector.propertySize;
+  public let arrayLength = Inspector.arrayLength;
+  public let arrayItemType = Inspector.arrayItemType;
+  public let mapKeyExists = Inspector.mapKeyExists;
+  public let mapSize = Inspector.mapSize;
+  public let customCandyCheck = Inspector.customCandyCheck;
+  public let nestedValidation = Inspector.nestedValidation;
+  
   // Re-export runtime validation rule builders
   public let dynamicAuth = Inspector.dynamicAuth;
   public let customCheck = Inspector.customCheck;
@@ -56,6 +73,9 @@ module {
   public let validateBlobSize = Inspector.validateBlobSize;
   public let validateNatValue = Inspector.validateNatValue;
   public let validateIntValue = Inspector.validateIntValue;
+  
+  // Re-export constants
+  public let EmptyGuardBlob = Inspector.EmptyGuardBlob;
 
 
 };

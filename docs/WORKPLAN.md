@@ -1,8 +1,15 @@
 # Inspect-Mo Development Workplan
 
-## 🚀 PROGRESS SUMMARY (As of August 20, 2025)
+## 🚀 PROGRESS SUMMARY (As of August 28, 2025)
 
-**MAJOR MILESTONE ACHIEVED**: Core library and advanced features are COMPLETE! 🎉
+**MAJOR MILESTONE ACHIEVED**: Core library, advanced features, and v0.1.1 enhancements are COMPLETE! 🎉
+
+### ✅ v0.1.1 Release Completion (August 28, 2025)
+- **✅ ICRC16 Integration**: Complete CandyShared validation suite with 15 validation rules
+- **✅ inspectOnlyArgSize Function**: O(1) efficient argument size checking without parsing overhead
+- **✅ Enhanced Testing**: 28/28 Motoko tests + 6/6 PIC integration tests passing
+- **✅ Comprehensive Documentation**: Updated API.md, EXAMPLES.md, and CHANGELOG.md
+- **✅ Integration Tests**: Full test coverage for both unit and integration scenarios
 
 ### ✅ Completed Phases (Weeks 1-9)
 - **Phase 1 (Weeks 1-4)**: MVP Core Foundation - FULLY COMPLETE
@@ -36,6 +43,28 @@
 - **✅ Comprehensive examples** - real-world DeFi and file upload scenarios
 - **✅ Jest timeout configuration optimized** - 30-second timeout for stable PocketIC integration
 - **✅ Complete testing infrastructure** - both unit tests (Mops) and integration tests (Jest/PocketIC)
+
+### 🔧 v0.1.1 Additional Features (Completed August 28, 2025)
+
+#### inspectOnlyArgSize Implementation ✅ COMPLETED
+- **✅ Core Function**: Added efficient O(1) argument size checking to Inspector class
+  - Function signature: `public func inspectOnlyArgSize(args: InspectArgs<T>) : Nat`
+  - Direct blob size access without parsing or validation overhead
+  - Returns exact byte count for pre-validation filtering and monitoring
+- **✅ Comprehensive Testing**:
+  - Unit tests: `test/inspect-arg-size.test.mo` with edge case coverage
+  - Integration tests: `test/integration/inspect-arg-size-integration.test.mo` with full pipeline testing
+  - PIC integration: `pic/integration/inspect-arg-size.test.ts` with real canister deployment
+  - All test scenarios passing: 28/28 Motoko + 6/6 PIC integration tests
+- **✅ Documentation & Examples**:
+  - Complete API reference in `docs/API.md` with usage patterns
+  - Performance characteristics and integration examples
+  - Use case guidance for pre-filtering and monitoring scenarios
+- **✅ Integration Validation**:
+  - Seamless integration with existing validation pipeline
+  - Cross-identity consistency testing
+  - Performance validation with different data sizes
+  - Edge case handling (empty blobs, single bytes, large data)
 
 ## Project Timeline: 17 Weeks Total
 

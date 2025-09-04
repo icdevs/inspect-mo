@@ -1,0 +1,9 @@
+service : {
+  clearTestResults : () -> ();
+  getTestResults : () -> (vec text) query;
+  runAllTests : () -> (vec text);
+  testAppendValidationRules : () -> (bool);
+  testCombineValidationRules : () -> (bool);
+  testPredefinedRuleSets : () -> (bool);
+  testValidationRuleBuilder : () -> (bool);
+}

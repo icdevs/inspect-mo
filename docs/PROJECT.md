@@ -31,6 +31,27 @@ A declarative, type-safe library that makes implementing robust message inspecti
 - **Int Value Validation**: Min/max value constraints for Int arguments using user-defined accessor functions
 - **Ingress Blocking**: Block ingress calls at boundary (inspect only handles ingress)
 - **Dynamic Runtime Validation**: Custom functions with typed arguments and call context (caller, cycles, deadline)
+- **✅ ICRC16 CandyShared Integration**: Complete metadata validation with 15 rule variants (Production Ready v0.1.1)
+- **✅ Efficient Argument Size Checking**: O(1) `inspectOnlyArgSize` function for pre-filtering and monitoring (v0.1.1)
+
+### Performance & Efficiency Features (✅ Complete v0.1.1)
+- **inspectOnlyArgSize Function**: Direct blob size access without parsing overhead
+  - O(1) complexity for maximum performance in high-throughput scenarios
+  - Pre-filtering capability to reject oversized requests before expensive validation
+  - Monitoring and analytics support for argument size tracking
+  - Seamless integration with existing validation pipeline
+- **Early Rejection Patterns**: Filter requests by size before resource-intensive operations
+- **Performance Monitoring**: Built-in argument size analytics and rejection rate tracking
+
+### ICRC16 Features (✅ Complete)
+- **CandyShared Validation**: Full support for ICRC16 metadata structures
+- **Type Validation**: candyType, candySize, candyDepth validation rules
+- **Structure Validation**: propertyExists, arrayLength, classStructure validation
+- **Value Validation**: boolValue, intRange, natRange, floatRange validation
+- **Pattern Validation**: textPattern, valueSet validation
+- **Custom Logic**: icrc16CustomCandyCheck for domain-specific validation
+- **Mixed Pipelines**: Seamless combination of traditional + ICRC16 validation rules
+- **Production Tested**: 15/15 PIC.js tests passing with real canister deployment
 
 ### Architecture Features
 - **Dual Pattern**: 

@@ -62,7 +62,7 @@ await test("authentication - requireAuth rule", func() : async () {
   // Test with anonymous caller (should fail)
   let anonArgs : InspectMo.InspectArgs<Args> = {
     caller = Principal.fromText("2vxsx-fae"); // Anonymous principal
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "protected_method";
     isQuery = false;
     cycles = null;
@@ -80,7 +80,7 @@ await test("authentication - requireAuth rule", func() : async () {
   // Test with authenticated caller (should pass)
   let authArgs : InspectMo.InspectArgs<Args> = {
     caller = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "protected_method";
     isQuery = false;
     cycles = null;
@@ -145,7 +145,7 @@ await test("runtime validation - textSize", func() : async () {
   // Test with valid text
   let validArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "text_guard_method";
     isQuery = false;
     cycles = null;
@@ -162,7 +162,7 @@ await test("runtime validation - textSize", func() : async () {
   // Test with text too long
   let invalidArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "text_guard_method";
     isQuery = false;
     cycles = null;
@@ -179,7 +179,7 @@ await test("runtime validation - textSize", func() : async () {
   // Test with empty text
   let emptyArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "text_guard_method";
     isQuery = false;
     cycles = null;
@@ -245,7 +245,7 @@ await test("runtime validation - blobSize", func() : async () {
   // Test with valid blob
   let validArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "blob_guard_method";
     isQuery = false;
     cycles = null;
@@ -262,7 +262,7 @@ await test("runtime validation - blobSize", func() : async () {
   // Test with oversized blob
   let invalidArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "blob_guard_method";
     isQuery = false;
     cycles = null;
@@ -336,7 +336,7 @@ await test("runtime validation - customCheck", func() : async () {
   // Test with valid input
   let validArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "custom_method";
     isQuery = false;
     cycles = null;
@@ -353,7 +353,7 @@ await test("runtime validation - customCheck", func() : async () {
   // Test with invalid prefix
   let invalidPrefixArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "custom_method";
     isQuery = false;
     cycles = null;
@@ -370,7 +370,7 @@ await test("runtime validation - customCheck", func() : async () {
   // Test with too short text
   let shortArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "custom_method";
     isQuery = false;
     cycles = null;
@@ -454,7 +454,7 @@ await test("runtime validation - dynamicAuth", func() : async () {
   // Test admin operation with admin caller
   let adminValidArgs : InspectMo.InspectArgs<Args> = {
     caller = adminCaller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "dynamic_auth_method";
     isQuery = false;
     cycles = null;
@@ -471,7 +471,7 @@ await test("runtime validation - dynamicAuth", func() : async () {
   // Test admin operation with non-admin caller
   let adminInvalidArgs : InspectMo.InspectArgs<Args> = {
     caller = userCaller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "dynamic_auth_method";
     isQuery = false;
     cycles = null;
@@ -488,7 +488,7 @@ await test("runtime validation - dynamicAuth", func() : async () {
   // Test regular operation with any caller
   let userValidArgs : InspectMo.InspectArgs<Args> = {
     caller = userCaller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "dynamic_auth_method";
     isQuery = false;
     cycles = null;
@@ -567,7 +567,7 @@ await test("combined validation - multiple rules", func() : async () {
   // Test with valid input passing all checks
   let validArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "secure_method";
     isQuery = false;
     cycles = null;
@@ -584,7 +584,7 @@ await test("combined validation - multiple rules", func() : async () {
   // Test with inappropriate content
   let profanityArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "secure_method";
     isQuery = false;
     cycles = null;
@@ -601,7 +601,7 @@ await test("combined validation - multiple rules", func() : async () {
   // Test with text too short
   let shortArgs : InspectMo.InspectArgs<Args> = {
     caller = caller;
-    arg = Text.encodeUtf8("test");
+    arg = InspectMo.EmptyGuardBlob;
     methodName = "secure_method";
     isQuery = false;
     cycles = null;

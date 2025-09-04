@@ -5,8 +5,12 @@ import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Blob "mo:core/Blob";
 import Runtime "mo:core/Runtime";
+import ClassPlusLib "mo:class-plus";
+import TT "mo:timer-tool";
 
 /// Test actual validation functionality using ErasedValidator pattern
+
+persistent actor {
 
 type Args = {
   #protected_method: () -> Text;
@@ -14,32 +18,104 @@ type Args = {
   #custom_method: () -> Text;
 };
 
+  // Timer tool setup following main.mo pattern
+  transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+    false
+  );
+  stable var tt_migration_state: TT.State = TT.Migration.migration.initialState;
+
+  transient let tt = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = null;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = ?{
+            asset = null;
+            collector = null;
+            handler = null;
+            kill_switch = null;
+            period = ?3600;
+            platform = null;
+            tree = null;
+          };
+        };
+        reportExecution = null;
+        reportError = null;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    };
+  });
+
+  // Create proper environment for ICRC85 and TimerTool following main.mo pattern
+  func createEnvironment() : InspectMo.Environment {
+    {
+      tt = tt();
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      log = null;
+    };
+  };
+
+  // Create main inspector following main.mo pattern
+  stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+  transient let inspector = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?{
+      allowAnonymous = ?false;
+      defaultMaxArgSize = ?1024;
+      authProvider = null;
+      rateLimit = null;
+      queryDefaults = null;
+      updateDefaults = null;
+      developmentMode = true;
+      auditLog = false;
+    };
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      createEnvironment()
+    });
+    onInitialize = null;
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
+
+  // Create test inspector variants for different configs
+  private func createTestInspector() : InspectMo.InspectMo {
+    // For tests, we can just return the main inspector since it has proper environment
+    inspector()
+  };
+
+public func runTests() : async () {
 await test("boundary validation tests", func() : async () {
   Debug.print("Testing boundary validation...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?false;
-    defaultMaxArgSize = ?1024;
-    authProvider = null;
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = true;
-    auditLog = false;
-  };
-  
-  let mockInspectMo = InspectMo.InspectMo(
-    null,
-    Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"),
-    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
-    ?config,
-    null,
-    func(state: InspectMo.State) {}
-  );
-  let inspector = mockInspectMo.createInspector<Args>();
+  let mockInspectMo = createTestInspector();
+  let boundaryInspector = mockInspectMo.createInspector<Args>();
   
   // Register a method with auth requirement using ErasedValidator pattern
-  let protectedMethodInfo = inspector.createMethodGuardInfo<Text>(
+  let protectedMethodInfo = boundaryInspector.createMethodGuardInfo<Text>(
     "protected_method",
     false,
     [
@@ -52,7 +128,8 @@ await test("boundary validation tests", func() : async () {
       }
     }
   );
-  inspector.inspect(protectedMethodInfo);
+  
+  boundaryInspector.inspect(protectedMethodInfo);
   
   // Test with anonymous caller (should fail)
   let anonArgs : InspectMo.InspectArgs<Args> = {
@@ -66,7 +143,7 @@ await test("boundary validation tests", func() : async () {
     msg = #protected_method(func() { "test" });
   };
   
-  let anonResult = inspector.inspectCheck(anonArgs);
+  let anonResult = boundaryInspector.inspectCheck(anonArgs);
   switch (anonResult) {
     case (#ok) Runtime.trap("Expected anonymous rejection but got success");
     case (#err(msg)) Debug.print("✓ Anonymous caller correctly rejected: " # msg);
@@ -84,7 +161,7 @@ await test("boundary validation tests", func() : async () {
     msg = #protected_method(func() { "test" });
   };
   
-  let authResult = inspector.inspectCheck(authArgs);
+  let authResult = boundaryInspector.inspectCheck(authArgs);
   switch (authResult) {
     case (#ok) Debug.print("✓ Authenticated caller correctly accepted");
     case (#err(msg)) Runtime.trap("Expected success but got: " # msg);
@@ -96,29 +173,11 @@ await test("boundary validation tests", func() : async () {
 await test("runtime validation tests", func() : async () {
   Debug.print("Testing runtime validation...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?true; // Allow for runtime testing
-    defaultMaxArgSize = ?1024;
-    authProvider = null;
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = true;
-    auditLog = false;
-  };
-  
-  let mockInspectMo = InspectMo.InspectMo(
-    null,
-    Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"),
-    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"),
-    ?config,
-    null,
-    func(state: InspectMo.State) {}
-  );
-  let inspector = mockInspectMo.createInspector<Args>();
+  let mockInspectMo = createTestInspector();
+  let runtimeInspector = mockInspectMo.createInspector<Args>();
   
   // Register a method with runtime validation using ErasedValidator pattern
-  let guardedMethodInfo = inspector.createMethodGuardInfo<Text>(
+  let guardedMethodInfo = runtimeInspector.createMethodGuardInfo<Text>(
     "guarded_method",
     false,
     [
@@ -134,7 +193,7 @@ await test("runtime validation tests", func() : async () {
       }
     }
   );
-  inspector.guard(guardedMethodInfo);
+  runtimeInspector.guard(guardedMethodInfo);
   
   let caller = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
   
@@ -150,7 +209,7 @@ await test("runtime validation tests", func() : async () {
     msg = #guarded_method(func() { "hello" });
   };
   
-  let validResult = inspector.guardCheck(validArgs);
+  let validResult = runtimeInspector.guardCheck(validArgs);
   switch (validResult) {
     case (#ok) Debug.print("✓ Valid text correctly accepted");
     case (#err(msg)) Runtime.trap("Expected success but got: " # msg);
@@ -168,14 +227,14 @@ await test("runtime validation tests", func() : async () {
     msg = #guarded_method(func() { "this text is way too long" });
   };
   
-  let invalidResult = inspector.guardCheck(invalidArgs);
+  let invalidResult = runtimeInspector.guardCheck(invalidArgs);
   switch (invalidResult) {
     case (#ok) Runtime.trap("Expected failure but got success");
     case (#err(msg)) Debug.print("✓ Invalid text correctly rejected: " # msg);
   };
   
   // Test custom check using ErasedValidator pattern
-  let customMethodInfo = inspector.createMethodGuardInfo<Text>(
+  let customMethodInfo = runtimeInspector.createMethodGuardInfo<Text>(
     "custom_method",
     false,
     [
@@ -196,7 +255,7 @@ await test("runtime validation tests", func() : async () {
       }
     }
   );
-  inspector.guard(customMethodInfo);
+  runtimeInspector.guard(customMethodInfo);
   
   // Test custom check with valid input
   let customValidArgs : InspectMo.InspectArgs<Args> = {
@@ -210,7 +269,7 @@ await test("runtime validation tests", func() : async () {
     msg = #custom_method(func() { "valid" });
   };
   
-  let customValidResult = inspector.guardCheck(customValidArgs);
+  let customValidResult = runtimeInspector.guardCheck(customValidArgs);
   switch (customValidResult) {
     case (#ok) Debug.print("✓ Custom check with valid input passed");
     case (#err(msg)) Runtime.trap("Expected success but got: " # msg);
@@ -228,7 +287,7 @@ await test("runtime validation tests", func() : async () {
     msg = #custom_method(func() { "" });
   };
   
-  let customInvalidResult = inspector.guardCheck(customInvalidArgs);
+  let customInvalidResult = runtimeInspector.guardCheck(customInvalidArgs);
   switch (customInvalidResult) {
     case (#ok) Runtime.trap("Expected failure but got success");
     case (#err(msg)) Debug.print("✓ Custom check with invalid input failed: " # msg);
@@ -236,3 +295,8 @@ await test("runtime validation tests", func() : async () {
   
   Debug.print("✓ Runtime validation tests passed");
 });
+
+  Debug.print("🧪 STANDARD VALIDATION TESTS COMPLETED! 🧪");
+};
+
+}

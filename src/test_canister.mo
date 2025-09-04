@@ -1,23 +1,126 @@
-/// Test canister demonstrating InspectMo functionality with ErasedValidator pattern
-import InspectMo "core/inspector";
+/// Test canister demonstrating InspectMo functionality with proper timer setup
+import InspectMo "./lib";
 import Principal "mo:core/Principal";
 import Debug "mo:core/Debug";
 import Result "mo:core/Result";
 import Array "mo:core/Array";
 import Text "mo:core/Text";
+import Nat "mo:core/Nat";
+import _Int "mo:core/Int";
+import _Time "mo:core/Time";
+import ClassPlus "mo:class-plus";
+import TT "mo:timer-tool";
+import Log "mo:stable-local-log";
+import OVSFixed "mo:ovs-fixed";
 
-persistent actor TestCanister {
+shared (deployer) persistent actor class TestCanister<system>(
+  args: ?{
+    ttArgs: ?TT.InitArgList;
+  }
+) = this {
+  var _owner = deployer.caller;
+
+  transient let initManager = ClassPlus.ClassPlusInitializationManager(_owner, Principal.fromActor(this), true);
+
+  transient let ttInitArgs : ?TT.InitArgList = do?{args!.ttArgs!};
+
+  // Runtime ICRC85 environment (nullable until enabled by test)
+  transient var icrc85_env : OVSFixed.ICRC85Environment = null;
+
+  private func reportTTExecution(execInfo: TT.ExecutionReport): Bool{
+    Debug.print("TEST_CANISTER: TimerTool Execution: " # debug_show(execInfo));
+    return false;
+  };
+
+  private func reportTTError(errInfo: TT.ErrorReport) : ?Nat{
+    Debug.print("TEST_CANISTER: TimerTool Error: " # debug_show(errInfo));
+    return null;
+  };
+
+  var tt_migration_state: TT.State = TT.initialState();
+
+  transient let tt  = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = ttInitArgs;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        reportExecution = ?reportTTExecution;
+        reportError = ?reportTTError;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      Debug.print("TEST_CANISTER: Initializing TimerTool");
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    }
+  });
+
+  var localLog_migration_state: Log.State = Log.initialState();
+  transient let localLog = Log.Init<system>({
+    args = ?{
+      min_level = ?#Debug;
+      bufferSize = ?5000;
+    };
+    manager = initManager;
+    initialState = Log.initialState();
+    pullEnvironment = ?(func() : Log.Environment {
+      {
+        tt = tt();
+        advanced = null;
+        onEvict = null;
+      };
+    });
+    onInitialize = null;
+    onStorageChange = func(state: Log.State) {
+      localLog_migration_state := state;
+    };
+  });
+
   
   // Custom args types for InspectMo validation
   type Args = {
     #SimpleMessage : Text;
     #ProfileUpdate : (Text, Text);
     #GuardedMethod : Text;
+    #None : ();
   };
   
   // Counter to track how many times each method is called
   private stable var callCounts : [(Text, Nat)] = [];
   
+  // Track argument sizes by method for testing inspectOnlyArgSize functionality
+  private stable var methodArgSizes : [(Text, Nat)] = [];
+  
+  // Helper to store argument size for a method
+  private func storeArgSize(methodName: Text, argSize: Nat) : () {
+    var found = false;
+    var newSizes : [(Text, Nat)] = [];
+    
+    for ((name, size) in methodArgSizes.vals()) {
+      if (name == methodName) {
+        newSizes := Array.concat<(Text, Nat)>(newSizes, [(name, argSize)]);
+        found := true;
+      } else {
+        newSizes := Array.concat<(Text, Nat)>(newSizes, [(name, size)]);
+      };
+    };
+    
+    if (not found) {
+      newSizes := Array.concat<(Text, Nat)>(newSizes, [(methodName, argSize)]);
+    };
+    
+    methodArgSizes := newSizes;
+  };
+
   // Helper to increment call count
   private func incrementCallCount(methodName: Text) : () {
     var found = false;
@@ -39,7 +142,7 @@ persistent actor TestCanister {
     callCounts := newCounts;
   };
 
-  // Initialize Inspector with ErasedValidator pattern
+  // Initialize Inspector with proper environment setup
   transient let defaultConfig = {
     allowAnonymous = ?false;
     defaultMaxArgSize = ?1024;
@@ -51,19 +154,32 @@ persistent actor TestCanister {
     auditLog = false;
   };
 
-  transient func createTestInspector() : InspectMo.InspectMo {
-    InspectMo.InspectMo(
-      null, 
-      Principal.fromText("s6bzd-46mcd-mlbx5-cq2jv-m2mhx-nhj6y-erh6g-y73vq-fnfe6-zax3q-mqe"), 
-      Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"),
-      ?defaultConfig, 
-      null,
-      func(state: InspectMo.State) {}
-    )
-  };
+  var inspector_migration_state: InspectMo.State = InspectMo.initialState();
 
-  transient let inspector = createTestInspector();
-  transient let validatorInspector = inspector.createInspector<Args>();
+  transient let _inspector = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?defaultConfig;
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      {
+        tt = tt();
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        log = ?localLog();
+      };
+    });
+
+    onInitialize = ?(func (_newClass: InspectMo.InspectMo) : async* () {
+      Debug.print("TEST_CANISTER: Initializing InspectMo");
+    });
+
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
+
+  transient let validatorInspector = _inspector().createInspector<Args>();
 
   // Accessor functions for parameter extraction (for textSize guards)
   transient func getMessageText(message: Text): Text { message };
@@ -215,6 +331,95 @@ persistent actor TestCanister {
     }
   };
 
+  // Test methods for inspectOnlyArgSize functionality
+  public func test_small_args(data: Text) : async Result.Result<Text, Text> {
+    incrementCallCount("test_small_args");
+    
+    // Create InspectArgs to use with inspectOnlyArgSize
+    let inspectArgs : InspectMo.InspectArgs<Args> = {
+      methodName = "test_small_args";
+      caller = Principal.fromText("2vxsx-fae"); // dummy caller
+      arg = Text.encodeUtf8(data);
+      isQuery = false;
+      cycles = null;
+      deadline = null;
+      isInspect = false;
+      msg = #SimpleMessage(data);
+    };
+    
+    // Use inspectOnlyArgSize to measure argument size
+    let argSize = validatorInspector.inspectOnlyArgSize(inspectArgs);
+    storeArgSize("test_small_args", argSize);
+    
+    #ok("success: small args test with " # Nat.toText(Text.size(data)) # " chars")
+  };
+
+  public func test_large_args(data: Text) : async Result.Result<Text, Text> {
+    incrementCallCount("test_large_args");
+    
+    // Create InspectArgs to use with inspectOnlyArgSize
+    let inspectArgs : InspectMo.InspectArgs<Args> = {
+      methodName = "test_large_args";
+      caller = Principal.fromText("2vxsx-fae"); // dummy caller
+      arg = Text.encodeUtf8(data);
+      isQuery = false;
+      cycles = null;
+      deadline = null;
+      isInspect = false;
+      msg = #SimpleMessage(data);
+    };
+    
+    // Use inspectOnlyArgSize to measure argument size
+    let argSize = validatorInspector.inspectOnlyArgSize(inspectArgs);
+    storeArgSize("test_large_args", argSize);
+    
+    #ok("success: large args test with " # Nat.toText(Text.size(data)) # " chars")
+  };
+
+  public func test_size_validation(data: Text) : async Result.Result<Text, Text> {
+    incrementCallCount("test_size_validation");
+    
+    // Create InspectArgs to use with inspectOnlyArgSize
+    let inspectArgs : InspectMo.InspectArgs<Args> = {
+      methodName = "test_size_validation";
+      caller = Principal.fromText("2vxsx-fae"); // dummy caller
+      arg = Text.encodeUtf8(data);
+      isQuery = false;
+      cycles = null;
+      deadline = null;
+      isInspect = false;
+      msg = #SimpleMessage(data);
+    };
+    
+    // Use inspectOnlyArgSize to measure argument size
+    let argSize = validatorInspector.inspectOnlyArgSize(inspectArgs);
+    storeArgSize("test_size_validation", argSize);
+    
+    #ok("success: size validation test")
+  };
+
+  // Query method to get last measured arg size
+  public query func get_last_arg_size() : async Nat {
+    // Return arg size for any test method, prioritizing the most recent one
+    var lastArgSize = 0;
+    for ((methodName, argSize) in methodArgSizes.vals()) {
+      if (methodName == "test_small_args" or methodName == "test_large_args" or methodName == "test_size_validation") {
+        lastArgSize := argSize; // This will give us the last one stored
+      };
+    };
+    return lastArgSize;
+  };
+
+  // Query method to get arg size for any specific method
+  public query func get_method_arg_size(methodName: Text) : async Nat {
+    for ((name, size) in methodArgSizes.vals()) {
+      if (name == methodName) {
+        return size;
+      };
+    };
+    return 0;
+  };
+
   // ===== UTILITY METHODS FOR TESTING =====
   
   // Get call counts for verification
@@ -225,6 +430,7 @@ persistent actor TestCanister {
   // Reset call counts
   public func reset_call_counts() : async () {
     callCounts := [];
+    methodArgSizes := [];
   };
 
   // ===== SYSTEM FUNCTION =====
@@ -243,7 +449,12 @@ persistent actor TestCanister {
       #completely_blocked : () -> ();
       #unrestricted : () -> ();
       #guarded_method : () -> (data : Text);
+      #test_small_args : () -> (data : Text);
+      #test_large_args : () -> (data : Text);
+      #test_size_validation : () -> (data : Text);
       #get_call_counts : () -> ();
+      #get_last_arg_size : () -> ();
+      #get_method_arg_size : () -> (methodName : Text);
       #reset_call_counts : () -> ();
     }
   }) : Bool {
@@ -259,15 +470,23 @@ persistent actor TestCanister {
       case (#completely_blocked _) { ("completely_blocked", false) };
       case (#unrestricted _) { ("unrestricted", false) };
       case (#guarded_method _) { ("guarded_method", false) };
+      case (#test_small_args _) { ("test_small_args", false) };
+      case (#test_large_args _) { ("test_large_args", false) };
+      case (#test_size_validation _) { ("test_size_validation", false) };
       case (#get_call_counts _) { ("get_call_counts", true) };
+      case (#get_last_arg_size _) { ("get_last_arg_size", true) };
+      case (#get_method_arg_size _) { ("get_method_arg_size", true) };
       case (#reset_call_counts _) { ("reset_call_counts", false) };
     };
     
     // Create inspect arguments for ErasedValidator pattern
     let mockArgs : Args = switch (methodName) {
-      case ("guarded_method") { #GuardedMethod("mock_text_for_validation") }; // Simplified: treat all guarded_method calls as having text
+      case ("guarded_method") { #GuardedMethod("mock_text_for_validation") };
       case ("send_message") { #SimpleMessage("mock_message") };
       case ("update_profile") { #ProfileUpdate("mock_name", "mock_bio") };
+      case ("test_small_args") { #SimpleMessage("mock_small") };
+      case ("test_large_args") { #SimpleMessage("mock_large") };
+      case ("test_size_validation") { #SimpleMessage("mock_validation") };
       case (_) { #SimpleMessage("") };
     };
     

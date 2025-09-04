@@ -5,12 +5,13 @@ import Text "mo:core/Text";
 import Debug "mo:core/Debug";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
+import ClassPlusLib "mo:class-plus";
+import TT "mo:timer-tool";
 
 /// Comprehensive runtime validation rules test suite using ErasedValidator pattern
 /// Tests all runtime rule types and error handling
 
-let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
-let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
+persistent actor {
 
 // Runtime validation argument types
 type EmailArgs = { email: Text };
@@ -40,7 +41,93 @@ type Args = {
   #error_test: ErrorTestArgs;
 };
 
-let defaultConfig : InspectMo.InitArgs = {
+transient let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+transient let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
+
+  // Timer tool setup following main.mo pattern
+  transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+    false
+  );
+  stable var tt_migration_state: TT.State = TT.Migration.migration.initialState;
+
+  transient let tt = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = null;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = ?{
+            asset = null;
+            collector = null;
+            handler = null;
+            kill_switch = null;
+            period = ?3600;
+            platform = null;
+            tree = null;
+          };
+        };
+        reportExecution = null;
+        reportError = null;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    };
+  });
+
+  // Create proper environment for ICRC85 and TimerTool following main.mo pattern
+  func createEnvironment() : InspectMo.Environment {
+    {
+      tt = tt();
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      log = null;
+    };
+  };
+
+  // Create main inspector following main.mo pattern
+  stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+  transient let inspector = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?{
+      allowAnonymous = ?true; // Allow for runtime testing
+      defaultMaxArgSize = ?1024;
+      authProvider = null;
+      rateLimit = null;
+      queryDefaults = null;
+      updateDefaults = null;
+      developmentMode = true;
+      auditLog = false;
+    };
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      createEnvironment()
+    });
+    onInitialize = null;
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
+
+transient let defaultConfig : InspectMo.InitArgs = {
   allowAnonymous = ?true; // Allow for runtime testing
   defaultMaxArgSize = ?1024;
   authProvider = null;
@@ -51,16 +138,13 @@ let defaultConfig : InspectMo.InitArgs = {
   auditLog = false;
 };
 
-func createTestInspector() : InspectMo.InspectMo {
-  InspectMo.InspectMo(
-    null, // Environment
-    adminPrincipal, // Canister ID
-    testPrincipal, // Owner
-    ?defaultConfig,
-    null, // Migration state
-    func(state: InspectMo.State) {} // State change handler
-  )
-};
+  // Create test inspector variants for different configs
+
+  // Create test inspector variants for different configs
+  private func createTestInspector() : InspectMo.InspectMo {
+    // For tests, we can just return the main inspector since it has proper environment
+    inspector()
+  };
 
 // Helper functions for default args
 let defaultEmailArgs : EmailArgs = { email = "default@example.com" };
@@ -75,11 +159,10 @@ let defaultAuthTestArgs : AuthTestArgs = { content = "default" };
 let defaultCombinedArgs : CombinedArgs = { email = "default@example.com" };
 let defaultErrorTestArgs : ErrorTestArgs = { input = "default" };
 
-/// ========================================
-/// CUSTOM CHECK RUNTIME RULES
-/// ========================================
+Debug.print("🎉 ALL RUNTIME VALIDATION TESTS COMPLETED! 🎉");
 
-await test("customCheck runtime validation - business logic", func() : async () {
+public func runTests() : async () {
+  await test("customCheck runtime validation - business logic", func() : async () {
   Debug.print("Testing customCheck runtime validation...");
   
   let inspector = createTestInspector();
@@ -1034,4 +1117,7 @@ await test("runtime rule error handling and propagation", func() : async () {
   Debug.print("✓ Runtime rule error handling tests passed");
 });
 
-Debug.print("🎉 ALL RUNTIME VALIDATION TESTS COMPLETED! 🎉");
+  Debug.print("🎉 ALL RUNTIME VALIDATION TESTS COMPLETED! 🎉");
+  };
+
+}

@@ -8,6 +8,12 @@ import Result "mo:core/Result";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
 import Iter "mo:core/Iter";
+import _Int "mo:core/Int";
+import _Time "mo:core/Time";
+import ClassPlus "mo:class-plus";
+import TT "mo:timer-tool";
+import Log "mo:stable-local-log";
+import OVSFixed "mo:ovs-fixed";
 
 /// =========================================================================
 /// SIMPLE USER MANAGEMENT - INSPECTMO INTEGRATION EXAMPLE
@@ -22,7 +28,74 @@ import Iter "mo:core/Iter";
 /// 🎯 USE THIS AS A STARTING TEMPLATE
 /// =========================================================================
 
-persistent actor UserManagement {
+persistent actor {
+
+  var _owner = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+
+  transient let initManager = ClassPlus.ClassPlusInitializationManager(_owner, _owner, true);
+
+  transient let ttInitArgs : ?TT.InitArgList = null;
+
+  // Runtime ICRC85 environment (nullable until enabled by test)
+  transient var icrc85_env : OVSFixed.ICRC85Environment = null;
+
+  private func reportTTExecution(execInfo: TT.ExecutionReport): Bool{
+    Debug.print("USER_MANAGEMENT: TimerTool Execution: " # debug_show(execInfo));
+    return false;
+  };
+
+  private func reportTTError(errInfo: TT.ErrorReport) : ?Nat{
+    Debug.print("USER_MANAGEMENT: TimerTool Error: " # debug_show(errInfo));
+    return null;
+  };
+
+  var tt_migration_state: TT.State = TT.Migration.migration.initialState;
+
+  transient let tt  = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = ttInitArgs;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        reportExecution = ?reportTTExecution;
+        reportError = ?reportTTError;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      Debug.print("USER_MANAGEMENT: Initializing TimerTool");
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    }
+  });
+
+  var localLog_migration_state: Log.State = Log.initialState();
+  transient let localLog = Log.Init<system>({
+    args = ?{
+      min_level = ?#Debug;
+      bufferSize = ?5000;
+    };
+    manager = initManager;
+    initialState = Log.initialState();
+    pullEnvironment = ?(func() : Log.Environment {
+      {
+        tt = tt();
+        advanced = null;
+        onEvict = null;
+      };
+    });
+    onInitialize = null;
+    onStorageChange = func(state: Log.State) {
+      localLog_migration_state := state;
+    };
+  });
 
   /// Simple user profile
   public type UserProfile = {
@@ -50,7 +123,7 @@ persistent actor UserManagement {
   /// STATE MANAGEMENT
   /// =========================================================================
   
-  private stable var nextUserId: Nat = 1;
+  private var nextUserId: Nat = 1;
   var userEntries: [(Nat, UserProfile)] = [];
   var users = Map.fromIter<Nat, UserProfile>(userEntries.vals(), Nat.compare);
   
@@ -78,18 +151,34 @@ persistent actor UserManagement {
     auditLog = true;
   };
   
-  /// Initialize InspectMo
-  transient let inspectMo = InspectMo.InspectMo(
-    null,
-    Principal.fromActor(UserManagement),
-    Principal.fromActor(UserManagement),
-    ?inspectMoConfig,
-    null,
-    func(state: InspectMo.State) { }
-  );
+  var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+  /// Initialize InspectMo with proper environment
+  transient let inspectMo = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?inspectMoConfig;
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      {
+        tt = tt();
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        log = ?localLog();
+      };
+    });
+
+    onInitialize = ?(func (_newClass: InspectMo.InspectMo) : async* () {
+      Debug.print("USER_MANAGEMENT: Initializing InspectMo");
+    });
+
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
   
   /// Create typed inspector
-  transient let inspector = inspectMo.createInspector<MessageAccessor>();
+  transient let inspector = inspectMo().createInspector<MessageAccessor>();
   
   /// =========================================================================
   /// GUARD RULES - Parameter Validation

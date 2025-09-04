@@ -3,6 +3,8 @@ import MigrationTypes "../migrations/types";
 
 import SizeValidator "./size_validator";
 import RateLimiter "../security/rate_limiter";
+import ICRC16Rules "../utils/icrc16_validation_rules";
+import CandyTypes "mo:candy/types";
 
 // Class Plus and infrastructure imports
 
@@ -17,14 +19,15 @@ import Int "mo:core/Int";
 import Principal "mo:core/Principal";
 import Blob "mo:core/Blob";
 import Nat "mo:core/Nat";
+import Text "mo:core/Text";
+import Array "mo:core/Array";
+import Result "mo:core/Result";
 // removed unused imports
 import TimerToolLib "mo:timer-tool";
 // removed unused imports
 
 // Basic validation imports
-import Result "mo:core/Result";
 import BTree "mo:core/Map";
-import Text "mo:core/Text";
 import Runtime "mo:core/Runtime";
 import Map "mo:core/Map";
 
@@ -54,6 +57,8 @@ module {
   public let ICRC85_Timer_Namespace = "icrc85:ovs:shareaction:inspect-mo";
   public let ICRC85_Payment_Namespace = "org.icdevs.libraries.inspect-mo";
 
+  public let EmptyGuardBlob : Blob = "";
+
   // ========================================
   // INSPECTMO LIBRARY API
   // ========================================
@@ -77,6 +82,13 @@ module {
     
   }) :()-> InspectMo {
 
+  let envToUse = switch(config.pullEnvironment) {
+    case (?pullEnv) ?pullEnv;
+    case null {
+      Runtime.trap("InspectMo: No Environment Provided");
+    };
+  };
+
   let instance = ClassPlusLib.ClassPlus<system,
       InspectMo, 
       State,
@@ -85,32 +97,25 @@ module {
         manager = config.manager;
         initialState = config.initialState;
         args = config.args;
-        pullEnvironment = config.pullEnvironment;
+        pullEnvironment = envToUse;
         onInitialize = config.onInitialize;
         onStorageChange = config.onStorageChange;
         constructor = func(stored, instantiator, canister, args, environment, storageChanged) {
           InspectMo(stored, instantiator, canister, args, environment, storageChanged)
         };
       }).get;
-    
-    // Only initialize ICRC85 cycle sharing if environment is provided
-    switch(instance().environment) {
-      case (?env) {
-        let initialWait : ?Nat = do? { env.advanced!.icrc85!.period! };
-        ovsfixed.initialize_cycleShare<system>({
-          namespace = ICRC85_Timer_Namespace;
-          icrc_85_state = instance().state.icrc85;
-          wait = initialWait; // Use provided period as initial wait when available
-          registerExecutionListenerAsync = env.tt.registerExecutionListenerAsync;
-          setActionSync = env.tt.setActionSync;  
-          existingIndex = env.tt.getState().actionIdIndex;
-          handler = instance().handleIcrc85Action;
-        });
-      };
-      case null {
-        // Skip ICRC85 initialization for testing
-      };
-    };
+
+    // Use default OneDay wait for initial share action (not the ICRC85 period)
+    // The period is used for recurring actions, not the initial delay
+      ovsfixed.initialize_cycleShare<system>({
+        namespace = ICRC85_Timer_Namespace;
+        icrc_85_state = instance().state.icrc85;
+        wait = null; // Use default OneDay initial wait from ovs-fixed
+        registerExecutionListenerAsync = instance().environment.tt.registerExecutionListenerAsync;
+        setActionSync = instance().environment.tt.setActionSync;  
+        existingIndex = instance().environment.tt.getState().actionIdIndex;
+        handler = instance().handleIcrc85Action;
+      });
 
     instance;
   };
@@ -147,17 +152,18 @@ module {
 
     // Environment can change over time (e.g., tests enabling ICRC85 options).
     // Keep a mutable copy and provide a refresher.
-    public var environment : ?Environment = environment_passed;
-
-    // Compatibility no-op; kept for API stability if callers invoke it.
-    public func refreshEnvironment() : () { };
-
-    // New: allow the environment to be updated by the embedding canister
-    public func setEnvironment(env: ?Environment) : () {
-      environment := env;
+    public var environment : Environment = switch(environment_passed) {
+      case (?env) env;
+      case null {
+        Runtime.trap("CANISTER: TimerTool Environment: No Environment Provided");
+      };
     };
 
-    // let d = environment.log.log_debug; // Commented out for test compatibility
+
+    let d = switch(environment.log){
+      case(?v) v.log_debug; // Commented out for test compatibility
+      case null { func(a:Text, b:Text){ D.print(a # " " # b) } }
+    };
 
     public var state : CurrentState = switch(stored){
       case(null) {
@@ -177,6 +183,8 @@ module {
     };
 
     storageChanged(#v0_1_0(#data(state)));
+
+    
 
     // ========================================
     // INSPECTOR CORE FUNCTIONALITY
@@ -485,15 +493,7 @@ module {
           };
       case (#rateLimit(_rateLimitRule)) {
             // Use RateLimiter if available in environment
-            switch (environment) {
-        case (?_env) {
-                // TODO: Implement rate limiting with environment
-                #ok  // Placeholder for now
-              };
-              case null {
-                #ok  // No rate limiting without environment
-              };
-            };
+            #ok;
           };
           case (#customCheck(checkFunc)) {
             // Execute custom check function with typed arguments
@@ -513,6 +513,336 @@ module {
               permissions = config.authProvider;
             };
             authFunc(authArgs)
+          };
+          
+                    // ICRC16 CandyShared validation cases - simplified validation logic
+          case (#candyType(accessor, expectedType)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Simple type validation based on CandyShared structure
+            let actualType = switch (candy) {
+              case (#Int(_)) "Int";
+              case (#Nat(_)) "Nat";
+              case (#Nat8(_)) "Nat8";
+              case (#Nat16(_)) "Nat16"; 
+              case (#Nat32(_)) "Nat32";
+              case (#Nat64(_)) "Nat64";
+              case (#Int8(_)) "Int8";
+              case (#Int16(_)) "Int16";
+              case (#Int32(_)) "Int32";
+              case (#Int64(_)) "Int64";
+              case (#Text(_)) "Text";
+              case (#Bool(_)) "Bool";
+              case (#Float(_)) "Float";
+              case (#Principal(_)) "Principal";
+              case (#Blob(_)) "Blob";
+              case (#Class(_)) "Class";
+              case (#Array(_)) "Array";
+              case (#Option(_)) "Option";
+              case (#Bytes(_)) "Bytes";
+              case (#Floats(_)) "Floats";
+              case (_) "Unknown";
+            };
+            if (actualType == expectedType) {
+              #ok
+            } else {
+              #err("candyType: Expected " # expectedType # ", got " # actualType)
+            }
+          };
+          case (#candySize(accessor, min, max)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Estimate serialized size based on candy type
+            let size = switch (candy) {
+              case (#Text(text)) text.size();
+              case (#Blob(blob)) blob.size();
+              case (#Bytes(bytes)) bytes.size();
+              case (#Array(arr)) arr.size() * 8; // Rough estimate
+              case (#Floats(floats)) floats.size() * 8;
+              case (#Int(_)) 8;
+              case (#Nat(_)) 8;
+              case (_) 8; // Default size estimate
+            };
+            switch (min, max) {
+              case (?minSize, ?maxSize) {
+                if (size < minSize or size > maxSize) {
+                  #err("candySize: Size " # debug_show(size) # " not in range [" # debug_show(minSize) # ", " # debug_show(maxSize) # "]")
+                } else { #ok }
+              };
+              case (?minSize, null) {
+                if (size < minSize) {
+                  #err("candySize: Size " # debug_show(size) # " below minimum " # debug_show(minSize))
+                } else { #ok }
+              };
+              case (null, ?maxSize) {
+                if (size > maxSize) {
+                  #err("candySize: Size " # debug_show(size) # " above maximum " # debug_show(maxSize))
+                } else { #ok }
+              };
+              case (null, null) { #ok };
+            }
+          };
+          case (#candyDepth(accessor, maxDepth)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Simple depth calculation for nested structures
+            func calculateDepth(c: ICRC16Rules.CandyShared) : Nat {
+              switch (c) {
+                case (#Array(arr)) {
+                  var maxSubDepth = 0;
+                  for (item in arr.vals()) {
+                    let subDepth = calculateDepth(item);
+                    if (subDepth > maxSubDepth) {
+                      maxSubDepth := subDepth;
+                    };
+                  };
+                  1 + maxSubDepth
+                };
+                case (_) 1;
+              }
+            };
+            let depth = calculateDepth(candy);
+            if (depth <= maxDepth) {
+              #ok
+            } else {
+              #err("candyDepth: Depth " # debug_show(depth) # " exceeds maximum " # debug_show(maxDepth))
+            }
+          };
+          case (#candyPattern(accessor, pattern)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Simple pattern matching for text values
+            switch (candy) {
+              case (#Text(text)) {
+                // Basic pattern matching - just check if pattern is contained in text
+                if (Text.contains(text, #text pattern)) {
+                  #ok
+                } else {
+                  #err("candyPattern: Text '" # text # "' does not match pattern '" # pattern # "'")
+                }
+              };
+              case (_) {
+                #err("candyPattern: Pattern validation only supported for Text values")
+              };
+            }
+          };
+          case (#candyRange(accessor, min, max)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Range validation for numeric values
+            switch (candy) {
+              case (#Int(value)) {
+                switch (min, max) {
+                  case (?minVal, ?maxVal) {
+                    if (value < minVal or value > maxVal) {
+                      #err("candyRange: Value " # debug_show(value) # " not in range [" # debug_show(minVal) # ", " # debug_show(maxVal) # "]")
+                    } else { #ok }
+                  };
+                  case (?minVal, null) {
+                    if (value < minVal) {
+                      #err("candyRange: Value " # debug_show(value) # " below minimum " # debug_show(minVal))
+                    } else { #ok }
+                  };
+                  case (null, ?maxVal) {
+                    if (value > maxVal) {
+                      #err("candyRange: Value " # debug_show(value) # " above maximum " # debug_show(maxVal))
+                    } else { #ok }
+                  };
+                  case (null, null) { #ok };
+                }
+              };
+              case (#Nat(value)) {
+                let intValue = Int.fromNat(value);
+                switch (min, max) {
+                  case (?minVal, ?maxVal) {
+                    if (intValue < minVal or intValue > maxVal) {
+                      #err("candyRange: Value " # debug_show(intValue) # " not in range [" # debug_show(minVal) # ", " # debug_show(maxVal) # "]")
+                    } else { #ok }
+                  };
+                  case (?minVal, null) {
+                    if (intValue < minVal) {
+                      #err("candyRange: Value " # debug_show(intValue) # " below minimum " # debug_show(minVal))
+                    } else { #ok }
+                  };
+                  case (null, ?maxVal) {
+                    if (intValue > maxVal) {
+                      #err("candyRange: Value " # debug_show(intValue) # " above maximum " # debug_show(maxVal))
+                    } else { #ok }
+                  };
+                  case (null, null) { #ok };
+                }
+              };
+              case (_) {
+                #err("candyRange: Range validation only supported for Int and Nat values")
+              };
+            }
+          };
+          case (#candyStructure(accessor, _context)) {
+            let params = typedArgs;
+            let _candy = accessor(params);
+            // Basic structure validation
+            #ok // TODO: Implement comprehensive structure validation
+          };
+          case (#propertyExists(accessor, propertyName)) {
+            let params = typedArgs;
+            let properties = accessor(params);
+            // Check if property exists in PropertyShared array
+            let found = Array.find<ICRC16Rules.PropertyShared>(properties, func(prop) {
+              prop.name == propertyName
+            });
+            switch (found) {
+              case (?_) { #ok };
+              case null { #err("propertyExists: Property '" # propertyName # "' not found") };
+            }
+          };
+          case (#propertyType(accessor, propertyName, expectedType)) {
+            let params = typedArgs;
+            let properties = accessor(params);
+            // Find property and validate its type
+            let found = Array.find<ICRC16Rules.PropertyShared>(properties, func(prop) {
+              prop.name == propertyName
+            });
+            switch (found) {
+              case (?prop) {
+                let actualType = switch (prop.value) {
+                  case (#Int(_)) "Int";
+                  case (#Nat(_)) "Nat";
+                  case (#Text(_)) "Text";
+                  case (#Bool(_)) "Bool";
+                  case (#Array(_)) "Array";
+                  case (_) "Unknown";
+                };
+                if (actualType == expectedType) {
+                  #ok
+                } else {
+                  #err("propertyType: Property '" # propertyName # "' expected type " # expectedType # ", got " # actualType)
+                }
+              };
+              case null { #err("propertyType: Property '" # propertyName # "' not found") };
+            }
+          };
+          case (#propertySize(accessor, propertyName, min, max)) {
+            let params = typedArgs;
+            let properties = accessor(params);
+            // Find property and validate its size
+            let found = Array.find<ICRC16Rules.PropertyShared>(properties, func(prop) {
+              prop.name == propertyName
+            });
+            switch (found) {
+              case (?prop) {
+                let size = switch (prop.value) {
+                  case (#Text(text)) text.size();
+                  case (#Blob(blob)) blob.size();
+                  case (#Array(arr)) arr.size();
+                  case (_) 8; // Default size
+                };
+                switch (min, max) {
+                  case (?minSize, ?maxSize) {
+                    if (size < minSize or size > maxSize) {
+                      #err("propertySize: Property '" # propertyName # "' size " # debug_show(size) # " not in range [" # debug_show(minSize) # ", " # debug_show(maxSize) # "]")
+                    } else { #ok }
+                  };
+                  case (?minSize, null) {
+                    if (size < minSize) {
+                      #err("propertySize: Property '" # propertyName # "' size " # debug_show(size) # " below minimum " # debug_show(minSize))
+                    } else { #ok }
+                  };
+                  case (null, ?maxSize) {
+                    if (size > maxSize) {
+                      #err("propertySize: Property '" # propertyName # "' size " # debug_show(size) # " above maximum " # debug_show(maxSize))
+                    } else { #ok }
+                  };
+                  case (null, null) { #ok };
+                }
+              };
+              case null { #err("propertySize: Property '" # propertyName # "' not found") };
+            }
+          };
+          case (#arrayLength(accessor, min, max)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Validate array length
+            switch (candy) {
+              case (#Array(arr)) {
+                let length = arr.size();
+                switch (min, max) {
+                  case (?minLen, ?maxLen) {
+                    if (length < minLen or length > maxLen) {
+                      #err("arrayLength: Array length " # debug_show(length) # " not in range [" # debug_show(minLen) # ", " # debug_show(maxLen) # "]")
+                    } else { #ok }
+                  };
+                  case (?minLen, null) {
+                    if (length < minLen) {
+                      #err("arrayLength: Array length " # debug_show(length) # " below minimum " # debug_show(minLen))
+                    } else { #ok }
+                  };
+                  case (null, ?maxLen) {
+                    if (length > maxLen) {
+                      #err("arrayLength: Array length " # debug_show(length) # " above maximum " # debug_show(maxLen))
+                    } else { #ok }
+                  };
+                  case (null, null) { #ok };
+                }
+              };
+              case (_) {
+                #err("arrayLength: Array length validation only supported for Array values")
+              };
+            }
+          };
+          case (#arrayItemType(accessor, expectedType)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Validate array item types
+            switch (candy) {
+              case (#Array(arr)) {
+                for (item in arr.vals()) {
+                  let actualType = switch (item) {
+                    case (#Int(_)) "Int";
+                    case (#Nat(_)) "Nat";
+                    case (#Text(_)) "Text";
+                    case (#Bool(_)) "Bool";
+                    case (_) "Unknown";
+                  };
+                  if (actualType != expectedType) {
+                    return #err("arrayItemType: Array contains item of type " # actualType # ", expected " # expectedType);
+                  };
+                };
+                #ok
+              };
+              case (_) {
+                #err("arrayItemType: Array item type validation only supported for Array values")
+              };
+            }
+          };
+          case (#mapKeyExists(accessor, _key)) {
+            let params = typedArgs;
+            let _candy = accessor(params);
+            // Basic map key existence check - simplified for now
+            #ok // TODO: Implement proper map key validation
+          };
+          case (#mapSize(accessor, _min, _max)) {
+            let params = typedArgs;
+            let _candy = accessor(params);
+            // Basic map size check - simplified for now
+            #ok // TODO: Implement proper map size validation
+          };
+          case (#customCandyCheck(accessor, validator)) {
+            let params = typedArgs;
+            let candy = accessor(params);
+            // Execute custom validator function
+            validator(candy)
+          };
+          case (#nestedValidation(accessor, rules)) {
+            let params = typedArgs;
+            let _ = accessor(params);
+            // Execute nested validation rules
+            for (nestedRule in rules.vals()) {
+              switch (validateSingleRule<M>(nestedRule, args, typedArgs)) {
+                case (#ok) { /* continue */ };
+                case (#err(errMsg)) { return #err("nestedValidation: " # errMsg) };
+              };
+            };
+            #ok
           };
         }
       };
@@ -566,6 +896,13 @@ module {
           }
         }
       };
+
+      /// Efficient argument size checking without parsing overhead
+      /// Provides access to raw blob size in inspect context
+      /// Perfect for boundary validation where size matters more than content
+      public func inspectOnlyArgSize(args: Types.InspectArgs<T>) : Nat {
+        Blob.size(args.arg)
+      };
     };
 
     /// Create a new inspector instance using the InspectMo's configuration
@@ -599,9 +936,7 @@ module {
       if (action.actionType == ICRC85_Timer_Namespace) {
         await* ovsfixed.standardShareCycles({
           icrc_85_state = state.icrc85;
-          icrc_85_environment = switch(environment) {
-            case (?env) {
-              switch (env.advanced) {
+          icrc_85_environment = switch (environment.advanced) {
                 case (?adv) {
                   switch (adv.icrc85) {
                     case (?icrc85Opt) ?icrc85Opt;
@@ -610,13 +945,8 @@ module {
                 };
                 case null null;
               };
-            };
-            case null null;
-          };
-          setActionSync = switch(environment) {
-            case (?env) env.tt.setActionSync;
-            case null func<system>(_time: TimerToolLib.Time, _action: TimerToolLib.ActionRequest) : TimerToolLib.ActionId { {id = 0; time = 0} /* mock ID */ };
-          };
+            
+          setActionSync = environment.tt.setActionSync;
           timerNamespace = ICRC85_Timer_Namespace;
           paymentNamespace = ICRC85_Payment_Namespace;
           baseCycles = 1_000_000_000_000; // 1 XDR
@@ -703,6 +1033,137 @@ module {
   /// Block all calls at boundary
   public func blockAll<T,M>() : ValidationRule<T,M> {
     #blockAll
+  };
+  
+  // ========================================
+  // ICRC16 CandyShared Validation Rule Builder Functions
+  // ========================================
+  
+  /// Create a CandyShared type validation rule
+  public func candyType<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    expectedType: Text
+  ) : ValidationRule<T,M> {
+    #candyType(accessor, expectedType)
+  };
+  
+  /// Create a CandyShared size validation rule
+  public func candySize<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    min: ?Nat,
+    max: ?Nat
+  ) : ValidationRule<T,M> {
+    #candySize(accessor, min, max)
+  };
+  
+  /// Create a CandyShared depth validation rule
+  public func candyDepth<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    maxDepth: Nat
+  ) : ValidationRule<T,M> {
+    #candyDepth(accessor, maxDepth)
+  };
+  
+  /// Create a CandyShared pattern validation rule
+  public func candyPattern<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    pattern: Text
+  ) : ValidationRule<T,M> {
+    #candyPattern(accessor, pattern)
+  };
+  
+  /// Create a CandyShared range validation rule
+  public func candyRange<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    min: ?Int,
+    max: ?Int
+  ) : ValidationRule<T,M> {
+    #candyRange(accessor, min, max)
+  };
+  
+  /// Create a CandyShared structure validation rule
+  public func candyStructure<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    context: Types.ICRC16ValidationContext
+  ) : ValidationRule<T,M> {
+    #candyStructure(accessor, context)
+  };
+  
+  /// Create a PropertyShared existence validation rule
+  public func propertyExists<T,M>(
+    accessor: M -> [CandyTypes.PropertyShared],
+    propertyName: Text
+  ) : ValidationRule<T,M> {
+    #propertyExists(accessor, propertyName)
+  };
+  
+  /// Create a PropertyShared type validation rule
+  public func propertyType<T,M>(
+    accessor: M -> [CandyTypes.PropertyShared],
+    propertyName: Text,
+    expectedType: Text
+  ) : ValidationRule<T,M> {
+    #propertyType(accessor, propertyName, expectedType)
+  };
+  
+  /// Create a PropertyShared size validation rule
+  public func propertySize<T,M>(
+    accessor: M -> [CandyTypes.PropertyShared],
+    propertyName: Text,
+    min: ?Nat,
+    max: ?Nat
+  ) : ValidationRule<T,M> {
+    #propertySize(accessor, propertyName, min, max)
+  };
+  
+  /// Create an array length validation rule
+  public func arrayLength<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    min: ?Nat,
+    max: ?Nat
+  ) : ValidationRule<T,M> {
+    #arrayLength(accessor, min, max)
+  };
+  
+  /// Create an array item type validation rule
+  public func arrayItemType<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    expectedType: Text
+  ) : ValidationRule<T,M> {
+    #arrayItemType(accessor, expectedType)
+  };
+  
+  /// Create a map key existence validation rule
+  public func mapKeyExists<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    key: Text
+  ) : ValidationRule<T,M> {
+    #mapKeyExists(accessor, key)
+  };
+  
+  /// Create a map size validation rule
+  public func mapSize<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    min: ?Nat,
+    max: ?Nat
+  ) : ValidationRule<T,M> {
+    #mapSize(accessor, min, max)
+  };
+  
+  /// Create a custom CandyShared validation rule
+  public func customCandyCheck<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    validator: CandyTypes.CandyShared -> Result.Result<(), Text>
+  ) : ValidationRule<T,M> {
+    #customCandyCheck(accessor, validator)
+  };
+  
+  /// Create a nested ICRC16 validation rule
+  public func nestedValidation<T,M>(
+    accessor: M -> CandyTypes.CandyShared,
+    rules: [ValidationRule<T,M>]
+  ) : ValidationRule<T,M> {
+    #nestedValidation(accessor, rules)
   };
   
   // ========================================

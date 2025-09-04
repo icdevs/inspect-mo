@@ -23,6 +23,111 @@
     "user_management_example": {
       "main": "./examples/user-management.mo",
       "type": "motoko"
+    },
+    "icrc16_user_management": {
+      "main": "./examples/icrc16-user-management.mo",
+      "type": "motoko"
+    },
+    "simple_icrc16": {
+      "main": "./examples/simple-icrc16.mo",
+      "type": "motoko"
+    },
+    "validation_test": {
+      "main": "./test/validation.test.mo",
+      "type": "motoko"
+    },
+    "runtime_validation_test": {
+      "main": "./test/runtime-validation.test.mo",
+      "type": "motoko"
+    },
+    "sample_test": {
+      "main": "./test/sample.test.mo",
+      "type": "motoko"
+    },
+    "main_test": {
+      "main": "./test/main.test.mo",
+      "type": "motoko"
+    },
+    "permission_integration_new_test": {
+      "main": "./test/permission-integration-new-simple.test.mo",
+      "type": "motoko"
+    },
+    "standard_validation_test": {
+      "main": "./test/standard-validation.test.mo",
+      "type": "motoko"
+    },
+    "performance_test": {
+      "main": "./test/performance.test.mo",
+      "type": "motoko"
+    },
+    "error_handling_test": {
+      "main": "./test/error-handling.test.mo",
+      "type": "motoko"
+    },
+    "debug_test": {
+      "main": "./test/debug.test.mo",
+      "type": "motoko"
+    },
+    "comprehensive_validation_test": {
+      "main": "./test/comprehensive-validation.test.mo",
+      "type": "motoko"
+    },
+    "basic_test": {
+      "main": "./test/basic.test.mo",
+      "type": "motoko"
+    },
+    "comprehensive_erasedvalidator_test": {
+      "main": "./test/comprehensive-erasedvalidator.test.mo",
+      "type": "motoko"
+    },
+    "authentication_test": {
+      "main": "./test/authentication.test.mo",
+      "type": "motoko"
+    },
+    "authentication_new_test": {
+      "main": "./test/authentication-new.test.mo",
+      "type": "motoko"
+    },
+    "auth_test": {
+      "main": "./test/auth.test.mo",
+      "type": "motoko"
+    },
+    "async_validation_test": {
+      "main": "./test/async-validation-simple.test.mo",
+      "type": "motoko"
+    },
+    "icrc16_map_test": {
+      "main": "./canisters/icrc16_map_test.mo",
+      "type": "motoko"
+    },
+    "icrc16_validator_valuemap_test": {
+      "main": "./test/icrc16-validator-valuemap.test.mo",
+      "type": "motoko"
+    },
+    "validation_utils_test": {
+      "main": "./canisters/validation_utils_test.mo",
+      "type": "motoko",
+      "candid": "./canisters/validation_utils_test.did"
+    },
+    "arg_size_check_example": {
+      "main": "./examples/arg-size-check.mo",
+      "type": "motoko"
+    },
+    "defi_protocol_example": {
+      "main": "./examples/defi-protocol.mo",
+      "type": "motoko"
+    },
+    "file_manager_example": {
+      "main": "./examples/file-manager.mo",
+      "type": "motoko"
+    },
+    "icrc16_validation_rules_test": {
+      "main": "./test/icrc16-validation-rules.test.mo",
+      "type": "motoko"
+    },
+    "simple_basic_test": {
+      "main": "./test/simple-basic.test.mo",
+      "type": "motoko"
     }
   },
   "defaults": {

@@ -7,9 +7,101 @@ import Time "mo:core/Time";
 import Array "mo:core/Array";
 import Iter "mo:core/Iter";
 import Nat "mo:core/Nat";
+import TimerTool "mo:timer-tool";
+import ClassPlusLib "mo:class-plus";
+
+persistent actor PerformanceTest {
 
 /// Comprehensive performance and rate limiting test suite using ErasedValidator pattern
 /// Tests rate limiting, performance under load, and system limits
+
+// Timer tool setup following main.mo pattern
+transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  false
+);
+stable var tt_migration_state: TimerTool.State = TimerTool.Migration.migration.initialState;
+
+transient let tt = TimerTool.Init<system>({
+  manager = initManager;
+  initialState = tt_migration_state;
+  args = null;
+  pullEnvironment = ?(func() : TimerTool.Environment {
+    {      
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      reportExecution = null;
+      reportError = null;
+      syncUnsafe = null;
+      reportBatch = null;
+    };
+  });
+  onInitialize = ?(func (newClass: TimerTool.TimerTool) : async* () {
+    newClass.initialize<system>();
+  });
+  onStorageChange = func(state: TimerTool.State) {
+    tt_migration_state := state;
+  };
+});
+
+// Create proper environment for ICRC85 and TimerTool following main.mo pattern
+func createEnvironment() : InspectMo.Environment {
+  {
+    tt = tt();
+    advanced = ?{
+      icrc85 = ?{
+        asset = null;
+        collector = null;
+        handler = null;
+        kill_switch = null;
+        period = ?3600;
+        platform = null;
+        tree = null;
+      };
+    };
+    log = null;
+  };
+};
+
+// Create main inspector following main.mo pattern
+stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+transient let inspector = InspectMo.Init<system>({
+  manager = initManager;
+  initialState = inspector_migration_state;
+  args = ?{
+    allowAnonymous = ?false;
+    defaultMaxArgSize = ?1024;
+    authProvider = null;
+    rateLimit = null;
+    queryDefaults = null;
+    updateDefaults = null;
+    developmentMode = true;
+    auditLog = false;
+  };
+  pullEnvironment = ?(func() : InspectMo.Environment {
+    createEnvironment()
+  });
+  onInitialize = null;
+  onStorageChange = func(state: InspectMo.State) {
+    inspector_migration_state := state;
+  };
+});
+
+func createTestInspector() : InspectMo.InspectMo {
+  // For tests, we can just return the main inspector since it has proper environment
+  inspector();
+};
 
 let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
 let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
@@ -30,12 +122,7 @@ type Args = {
 let defaultPerformanceArgs : PerformanceArgs = { content = "default"; requestId = 0 };
 let defaultStressArgs : StressArgs = { operation = "default"; data = "default"; counter = 0 };
 
-func createTestInspector(config: InspectMo.InitArgs) : InspectMo.InspectMo {
-  InspectMo.InspectMo(
-    null, adminPrincipal, testPrincipal, ?config, null,
-    func(state: InspectMo.State) {}
-  )
-};
+public func runTests() : async () {
 
 /// ========================================
 /// PERFORMANCE TESTS
@@ -44,19 +131,8 @@ func createTestInspector(config: InspectMo.InitArgs) : InspectMo.InspectMo {
 await test("validation performance under load", func() : async () {
   Debug.print("Testing validation performance under load...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?true;
-    defaultMaxArgSize = ?10240; // Larger max for performance testing
-    authProvider = null;
-    rateLimit = null; // No rate limiting for performance test
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = false;
-    auditLog = false;
-  };
-  
-  let inspector = createTestInspector(config);
-  let perfInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let perfInspector = inspectMo.createInspector<Args>();
   
   // Create a complex validation rule set
   perfInspector.inspect(perfInspector.createMethodGuardInfo<PerformanceArgs>(
@@ -155,19 +231,8 @@ await test("validation performance under load", func() : async () {
 await test("memory usage with large validation sets", func() : async () {
   Debug.print("Testing memory usage with large validation sets...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?true;
-    defaultMaxArgSize = ?10240;
-    authProvider = null;
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = false;
-    auditLog = false;
-  };
-  
-  let inspector = createTestInspector(config);
-  let memoryInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let memoryInspector = inspectMo.createInspector<Args>();
   
   // Create many different guards to test memory usage
   for (i in Array.keys(Array.tabulate<Nat>(20, func(x) { x }))) {
@@ -225,19 +290,8 @@ await test("memory usage with large validation sets", func() : async () {
 await test("maximum argument size limits", func() : async () {
   Debug.print("Testing maximum argument size limits...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?true;
-    defaultMaxArgSize = ?100; // Lower limit for testing
-    authProvider = null;
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = false;
-    auditLog = false;
-  };
-  
-  let inspector = createTestInspector(config);
-  let sizeInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let sizeInspector = inspectMo.createInspector<Args>();
   
   sizeInspector.inspect(sizeInspector.createMethodGuardInfo<PerformanceArgs>(
     "size_limit_test",
@@ -312,19 +366,8 @@ await test("maximum argument size limits", func() : async () {
 await test("concurrent validation stress test", func() : async () {
   Debug.print("Testing concurrent validation stress...");
   
-  let config : InspectMo.InitArgs = {
-    allowAnonymous = ?true;
-    defaultMaxArgSize = ?1024;
-    authProvider = null;
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = false;
-    auditLog = false;
-  };
-  
-  let inspector = createTestInspector(config);
-  let stressInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let stressInspector = inspectMo.createInspector<Args>();
   
   // Create multiple complex validation scenarios
   stressInspector.inspect(stressInspector.createMethodGuardInfo<StressArgs>(
@@ -424,3 +467,7 @@ await test("concurrent validation stress test", func() : async () {
 });
 
 Debug.print("⚡ ALL PERFORMANCE AND VALIDATION TESTS COMPLETED! ⚡");
+
+};
+
+}

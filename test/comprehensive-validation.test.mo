@@ -5,14 +5,101 @@ import Text "mo:core/Text";
 import Blob "mo:core/Blob";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
+import TimerTool "mo:timer-tool";
+import ClassPlusLib "mo:class-plus";
+
+persistent actor ComprehensiveValidationTest {
 
 /// Comprehensive validation rules test suite using ErasedValidator pattern
 /// This file tests ALL validation rule types systematically with proper Args union types
 
 // Test data setup
-let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
-let anonymousPrincipal = Principal.fromText("2vxsx-fae");
-let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
+transient let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+transient let anonymousPrincipal = Principal.fromText("2vxsx-fae");
+transient let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
+
+// Timer tool setup following main.mo pattern
+transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  false
+);
+stable var tt_migration_state: TimerTool.State = TimerTool.Migration.migration.initialState;
+
+transient let tt = TimerTool.Init<system>({
+  manager = initManager;
+  initialState = tt_migration_state;
+  args = null;
+  pullEnvironment = ?(func() : TimerTool.Environment {
+    {      
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      reportExecution = null;
+      reportError = null;
+      syncUnsafe = null;
+      reportBatch = null;
+    };
+  });
+  onInitialize = ?(func (newClass: TimerTool.TimerTool) : async* () {
+    newClass.initialize<system>();
+  });
+  onStorageChange = func(state: TimerTool.State) {
+    tt_migration_state := state;
+  };
+});
+
+// Create proper environment for ICRC85 and TimerTool following main.mo pattern
+func createEnvironment() : InspectMo.Environment {
+  {
+    tt = tt();
+    advanced = ?{
+      icrc85 = ?{
+        asset = null;
+        collector = null;
+        handler = null;
+        kill_switch = null;
+        period = ?3600;
+        platform = null;
+        tree = null;
+      };
+    };
+    log = null;
+  };
+};
+
+// Create main inspector following main.mo pattern
+stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+transient let inspector = InspectMo.Init<system>({
+  manager = initManager;
+  initialState = inspector_migration_state;
+  args = ?{
+    allowAnonymous = ?false;
+    defaultMaxArgSize = ?1024;
+    authProvider = null;
+    rateLimit = null;
+    queryDefaults = null;
+    updateDefaults = null;
+    developmentMode = true;
+    auditLog = false;
+  };
+  pullEnvironment = ?(func() : InspectMo.Environment {
+    createEnvironment()
+  });
+  onInitialize = null;
+  onStorageChange = func(state: InspectMo.State) {
+    inspector_migration_state := state;
+  };
+});
 
 // Simplified test argument types for comprehensive validation
 type TextArgs = { content: Text };
@@ -35,7 +122,7 @@ type Args = {
   #custom_validation: CustomArgs;
 };
 
-let defaultConfig : InspectMo.InitArgs = {
+transient let defaultConfig : InspectMo.InitArgs = {
   allowAnonymous = ?false;
   defaultMaxArgSize = ?1024;
   authProvider = null;
@@ -48,14 +135,12 @@ let defaultConfig : InspectMo.InitArgs = {
 
 // Create test inspector
 func createTestInspector() : InspectMo.InspectMo {
-  InspectMo.InspectMo(
-    null, adminPrincipal, testPrincipal, ?defaultConfig, null,
-    func(state: InspectMo.State) {}
-  )
+  // For tests, we can just return the main inspector since it has proper environment
+  inspector();
 };
 
 // Helper functions for default args
-let defaultTextArgs : TextArgs = { content = "default" };
+transient let defaultTextArgs : TextArgs = { content = "default" };
 let defaultBlobArgs : BlobArgs = { data = Text.encodeUtf8("default") };
 let defaultNumberArgs : NumberArgs = { value = 0 };
 let defaultIntArgs : IntArgs = { intValue = 0 };
@@ -66,6 +151,7 @@ let defaultCustomArgs : CustomArgs = { name = "default"; value = 0 };
 /// TEXT SIZE VALIDATION TESTS
 /// ========================================
 
+public func runTests() : async () {
 await test("textSize validation - basic functionality", func() : async () {
   Debug.print("Testing textSize validation rules with ErasedValidator...");
   
@@ -77,7 +163,7 @@ await test("textSize validation - basic functionality", func() : async () {
     "short_text",
     false,
     [
-      #textSize(func(args: TextArgs): Text { args.content }, ?1, ?5)
+      InspectMo.textSize<Args, TextArgs>(func(args: TextArgs): Text { args.content }, ?1, ?5)
     ],
     func(args: Args): TextArgs {
       switch (args) {
@@ -91,7 +177,7 @@ await test("textSize validation - basic functionality", func() : async () {
     "medium_text",
     false,
     [
-      #textSize(func(args: TextArgs): Text { args.content }, ?5, ?20)
+      InspectMo.textSize<Args, TextArgs>(func(args: TextArgs): Text { args.content }, ?5, ?20)
     ],
     func(args: Args): TextArgs {
       switch (args) {
@@ -561,4 +647,7 @@ await test("utility functions - comprehensive coverage", func() : async () {
   Debug.print("✓ Utility functions tests passed");
 });
 
-Debug.print("🎉 ALL COMPREHENSIVE VALIDATION RULES TESTS COMPLETED! 🎉");
+  Debug.print("🎉 ALL COMPREHENSIVE VALIDATION RULES TESTS COMPLETED! 🎉");
+};
+
+}

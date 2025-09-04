@@ -6,9 +6,101 @@ import Text "mo:core/Text";
 import Debug "mo:core/Debug";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
+import TimerTool "mo:timer-tool";
+import ClassPlusLib "mo:class-plus";
+
+persistent actor ErrorHandlingTest {
 
 /// Error handling and edge cases test suite with ErasedValidator pattern
 /// Tests error propagation, edge cases, and system robustness
+
+// Timer tool setup following main.mo pattern
+transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  false
+);
+stable var tt_migration_state: TimerTool.State = TimerTool.Migration.migration.initialState;
+
+transient let tt = TimerTool.Init<system>({
+  manager = initManager;
+  initialState = tt_migration_state;
+  args = null;
+  pullEnvironment = ?(func() : TimerTool.Environment {
+    {      
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      reportExecution = null;
+      reportError = null;
+      syncUnsafe = null;
+      reportBatch = null;
+    };
+  });
+  onInitialize = ?(func (newClass: TimerTool.TimerTool) : async* () {
+    newClass.initialize<system>();
+  });
+  onStorageChange = func(state: TimerTool.State) {
+    tt_migration_state := state;
+  };
+});
+
+// Create proper environment for ICRC85 and TimerTool following main.mo pattern
+func createEnvironment() : InspectMo.Environment {
+  {
+    tt = tt();
+    advanced = ?{
+      icrc85 = ?{
+        asset = null;
+        collector = null;
+        handler = null;
+        kill_switch = null;
+        period = ?3600;
+        platform = null;
+        tree = null;
+      };
+    };
+    log = null;
+  };
+};
+
+// Create main inspector following main.mo pattern
+stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+transient let inspector = InspectMo.Init<system>({
+  manager = initManager;
+  initialState = inspector_migration_state;
+  args = ?{
+    allowAnonymous = ?false;
+    defaultMaxArgSize = ?1024;
+    authProvider = null;
+    rateLimit = null;
+    queryDefaults = null;
+    updateDefaults = null;
+    developmentMode = true;
+    auditLog = false;
+  };
+  pullEnvironment = ?(func() : InspectMo.Environment {
+    createEnvironment()
+  });
+  onInitialize = null;
+  onStorageChange = func(state: InspectMo.State) {
+    inspector_migration_state := state;
+  };
+});
+
+func createTestInspector() : InspectMo.InspectMo {
+  // For tests, we can just return the main inspector since it has proper environment
+  inspector();
+};
 
 // Global Args union type for all test scenarios
 type ValidationArgs = {
@@ -29,26 +121,10 @@ type Args = {
   #recovery: RecoveryArgs;
 };
 
+public func runTests() : async () {
+
 let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
 let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
-
-let defaultConfig : InspectMo.InitArgs = {
-  allowAnonymous = ?true;
-  defaultMaxArgSize = ?1024;
-  authProvider = null;
-  rateLimit = null;
-  queryDefaults = null;
-  updateDefaults = null;
-  developmentMode = false;
-  auditLog = true;
-};
-
-func createTestInspector() : InspectMo.InspectMo {
-  InspectMo.InspectMo(
-    null, adminPrincipal, testPrincipal, ?defaultConfig, null,
-    func(state: InspectMo.State) {}
-  )
-};
 
 // Helper functions to create default args
 let defaultValidationArgs : ValidationArgs = { content = "default" };
@@ -62,8 +138,8 @@ let defaultRecoveryArgs : RecoveryArgs = { content = "default" };
 await test("error message propagation and formatting", func() : async () {
   Debug.print("Testing error message propagation...");
   
-  let inspector = createTestInspector();
-  let errorInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let errorInspector = inspectMo.createInspector<Args>();
   
   // Test detailed error messages with custom validation
   errorInspector.inspect(errorInspector.createMethodGuardInfo<ValidationArgs>(
@@ -162,8 +238,8 @@ await test("error message propagation and formatting", func() : async () {
 await test("boundary value edge cases", func() : async () {
   Debug.print("Testing boundary value edge cases...");
   
-  let inspector = createTestInspector();
-  let boundaryInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let boundaryInspector = inspectMo.createInspector<Args>();
   
   // Test exact boundary conditions (5-10 characters)
   boundaryInspector.inspect(boundaryInspector.createMethodGuardInfo<BoundaryArgs>(
@@ -266,8 +342,8 @@ await test("boundary value edge cases", func() : async () {
 await test("error recovery and fallback mechanisms", func() : async () {
   Debug.print("Testing error recovery and fallback...");
   
-  let inspector = createTestInspector();
-  let recoveryInspector = inspector.createInspector<Args>();
+  let inspectMo = createTestInspector();
+  let recoveryInspector = inspectMo.createInspector<Args>();
   
   // Create validation with fallback logic
   recoveryInspector.inspect(recoveryInspector.createMethodGuardInfo<RecoveryArgs>(
@@ -388,3 +464,7 @@ await test("error recovery and fallback mechanisms", func() : async () {
 });
 
 Debug.print("🛡️ ERROR HANDLING AND EDGE CASES TESTS COMPLETED! 🛡️");
+
+};
+
+}

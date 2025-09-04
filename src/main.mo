@@ -146,7 +146,7 @@ shared (deployer) persistent actor class SampleCanister<system>(
         advanced = ?{
           icrc85 = icrc85_env;
         }; // Provide dynamic ICRC85 options for tests
-        log = localLog();
+        log = ?localLog();
       };
     });
 
@@ -166,71 +166,8 @@ shared (deployer) persistent actor class SampleCanister<system>(
     return "world!";
   };
 
-  // Enable OVS test mode: install a handler so cycles aren't transferred
-  public shared func enable_ovs_test(args : ?{
-    // Optional: override period in nanoseconds for faster tests
-    period_ns : ?Nat;
-  }) : async () {
-    let periodOpt = do?{ args!.period_ns! };
-    icrc85_env := ?{
-      kill_switch = ?false;
-      handler = ?(func (events: [(Text, OVSFixed.Map)]) : () {
-        // Expect a single event with key "icrc85:ovs:shareaction"
-        if (events.size() > 0) {
-          let (ns, kv) = events[0];
-          ovs_last_namespace := ns;
-          // Extract some fields for basic verification
-          var unitsVal : Nat = 0;
-          var platformVal : Text = "";
-          label find for ((k, v) in kv.vals()) {
-            if (k == "units") {
-              switch (v) { case (#Nat(n)) { ovs_last_units := n; unitsVal := n }; case (_) {} };
-            } else if (k == "platform") {
-              switch (v) { case (#Text(t)) { ovs_last_platform := t; platformVal := t }; case (_) {} };
-            };
-          };
-          // Record history entry for handler mode
-          ovs_history := Array.concat<OvsEvent>(ovs_history, [
-            {
-              ts = _Int.abs(_Time.now());
-              mode = "handler";
-              namespace = ovs_last_namespace;
-              platform = if (platformVal == "") "icp" else platformVal;
-              units = unitsVal;
-            } : OvsEvent
-          ]);
-        };
-        ovs_handler_calls += 1;
-      });
-      period = periodOpt; // default of lib is 30 days when null
-      asset = ?"cycles";
-      platform = ?"icp";
-      tree = null;
-      collector = null;
-    };
-    // Refresh environments so downstream libs pick up new settings
-    _refresh_envs();
-  };
+  
 
-  // Enable OVS send mode: no handler, deposit cycles to a collector (default self)
-  public shared func enable_ovs_send_mode(args : ?{
-    period_ns : ?Nat;
-    collector_self : ?Bool;
-  }) : async () {
-    let periodOpt = do?{ args!.period_ns! };
-    let useSelfCollector : Bool = switch (do?{ args!.collector_self! }) { case (?b) b; case null true };
-    let collectorOpt : ?Principal = if (useSelfCollector) ?Principal.fromActor(this) else null;
-    icrc85_env := ?{
-      kill_switch = ?false;
-      handler = null; // allow real send path
-      period = periodOpt;
-      asset = ?"cycles";
-      platform = ?"icp";
-      tree = null;
-      collector = collectorOpt;
-    };
-    _refresh_envs();
-  };
 
   // Endpoint expected by OVS cycles-sharing when no handler is provided
   public shared func icrc85_deposit_cycles_notify(pairs: [(Text, Nat)]) : async () {
@@ -250,16 +187,6 @@ shared (deployer) persistent actor class SampleCanister<system>(
         } : OvsEvent
       ]);
     };
-  };
-
-  // Allow tests to force-refresh the environments of sub-components
-  private func _refresh_envs() : () {
-    // Push the new environment to InspectMo
-    _inspector().setEnvironment(?{
-      tt = tt();
-      advanced = ?{ icrc85 = icrc85_env };
-      log = localLog();
-    });
   };
 
   public shared query func get_ovs_handler_calls() : async Nat { ovs_handler_calls };

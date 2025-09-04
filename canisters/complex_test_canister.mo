@@ -1,14 +1,86 @@
 /// Complex Test canister for advanced InspectMo testing
 /// This canister has complex parameter types to test code generation thoroughly
-import InspectMo "../src/core/inspector";
+import InspectMo "../src/lib";
 import Principal "mo:core/Principal";
 import Debug "mo:core/Debug";
 import Result "mo:core/Result";
 import Array "mo:core/Array";
 import Time "mo:core/Time";
 import Text "mo:core/Text";
+import Int "mo:core/Int";
+import ClassPlus "mo:class-plus";
+import TT "mo:timer-tool";
+import Log "mo:stable-local-log";
+import OVSFixed "mo:ovs-fixed";
 
-persistent actor ComplexTestCanister {
+persistent actor {
+
+  var _owner = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+
+  transient let initManager = ClassPlus.ClassPlusInitializationManager(_owner, _owner, true);
+
+  transient let ttInitArgs : ?TT.InitArgList = null;
+
+  // Runtime ICRC85 environment (nullable until enabled by test)
+  transient var icrc85_env : OVSFixed.ICRC85Environment = null;
+
+  private func reportTTExecution(execInfo: TT.ExecutionReport): Bool{
+    Debug.print("COMPLEX_TEST: TimerTool Execution: " # debug_show(execInfo));
+    return false;
+  };
+
+  private func reportTTError(errInfo: TT.ErrorReport) : ?Nat{
+    Debug.print("COMPLEX_TEST: TimerTool Error: " # debug_show(errInfo));
+    return null;
+  };
+
+  var tt_migration_state: TT.State = TT.Migration.migration.initialState;
+
+  transient let tt  = TT.Init<system>({
+    manager = initManager;
+    initialState = tt_migration_state;
+    args = ttInitArgs;
+    pullEnvironment = ?(func() : TT.Environment {
+      {      
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        reportExecution = ?reportTTExecution;
+        reportError = ?reportTTError;
+        syncUnsafe = null;
+        reportBatch = null;
+      };
+    });
+
+    onInitialize = ?(func (newClass: TT.TimerTool) : async* () {
+      Debug.print("COMPLEX_TEST: Initializing TimerTool");
+      newClass.initialize<system>();
+    });
+    onStorageChange = func(state: TT.State) {
+      tt_migration_state := state;
+    }
+  });
+
+  var localLog_migration_state: Log.State = Log.initialState();
+  transient let localLog = Log.Init<system>({
+    args = ?{
+      min_level = ?#Debug;
+      bufferSize = ?5000;
+    };
+    manager = initManager;
+    initialState = Log.initialState();
+    pullEnvironment = ?(func() : Log.Environment {
+      {
+        tt = tt();
+        advanced = null;
+        onEvict = null;
+      };
+    });
+    onInitialize = null;
+    onStorageChange = func(state: Log.State) {
+      localLog_migration_state := state;
+    };
+  });
   
   // Args union for ErasedValidator pattern with all complex types
   type Args = {
@@ -89,8 +161,8 @@ persistent actor ComplexTestCanister {
   private var transactions : [TransactionRequest] = [];
   private var callLogs : [(Text, Int)] = [];
 
-  // Initialize Inspector with ErasedValidator pattern
-  transient let defaultConfig = {
+  // InspectMo configuration
+  transient let inspectMoConfig : InspectMo.InitArgs = {
     allowAnonymous = ?false;
     defaultMaxArgSize = ?1024;
     authProvider = null;
@@ -101,15 +173,35 @@ persistent actor ComplexTestCanister {
     auditLog = false;
   };
 
-  transient func createTestInspector() : InspectMo.InspectMo {
-    InspectMo.InspectMo(
-      null, 
-      Principal.fromText("s6bzd-46mcd-mlbx5-cq2jv-m2mhx-nhj6y-erh6g-y73vq-fnfe6-zax3q-mqe"), 
-      Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"),
-      ?defaultConfig, 
-      null,
-      func(state: InspectMo.State) {}
-    )
+  // State management for migrations
+  var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+  
+  // Initialize InspectMo at top level with system capability
+  transient let inspectMo = InspectMo.Init<system>({
+    manager = initManager;
+    initialState = inspector_migration_state;
+    args = ?inspectMoConfig;
+    pullEnvironment = ?(func() : InspectMo.Environment {
+      {
+        tt = tt();
+        advanced = ?{
+          icrc85 = icrc85_env;
+        };
+        log = ?localLog();
+      };
+    });
+
+    onInitialize = ?(func (_newClass: InspectMo.InspectMo) : async* () {
+      Debug.print("COMPLEX_TEST: Initializing InspectMo");
+    });
+
+    onStorageChange = func(state: InspectMo.State) {
+      inspector_migration_state := state;
+    };
+  });
+
+  private func createTestInspector() : InspectMo.InspectMo {
+    inspectMo();
   };
 
   transient let inspector = createTestInspector();

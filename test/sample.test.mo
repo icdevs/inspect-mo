@@ -3,6 +3,11 @@ import InspectMo "../src/core/inspector";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Debug "mo:core/Debug";
+import Runtime "mo:core/Runtime";
+import TimerTool "mo:timer-tool";
+import ClassPlusLib "mo:class-plus";
+
+persistent actor SampleTest {
 
 /// Basic sample test demonstrating ErasedValidator pattern
 /// Simple validation scenarios to establish conversion patterns
@@ -17,10 +22,93 @@ type Args = {
   #sample: SampleArgs;
 };
 
-let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
-let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
+transient let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
+transient let adminPrincipal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
 
-let defaultConfig : InspectMo.InitArgs = {
+// Timer tool setup following main.mo pattern
+transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  false
+);
+stable var tt_migration_state: TimerTool.State = TimerTool.Migration.migration.initialState;
+
+transient let tt = TimerTool.Init<system>({
+  manager = initManager;
+  initialState = tt_migration_state;
+  args = null;
+  pullEnvironment = ?(func() : TimerTool.Environment {
+    {      
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      reportExecution = null;
+      reportError = null;
+      syncUnsafe = null;
+      reportBatch = null;
+    };
+  });
+  onInitialize = ?(func (newClass: TimerTool.TimerTool) : async* () {
+    newClass.initialize<system>();
+  });
+  onStorageChange = func(state: TimerTool.State) {
+    tt_migration_state := state;
+  };
+});
+
+// Create proper environment for ICRC85 and TimerTool following main.mo pattern
+func createEnvironment() : InspectMo.Environment {
+  {
+    tt = tt();
+    advanced = ?{
+      icrc85 = ?{
+        asset = null;
+        collector = null;
+        handler = null;
+        kill_switch = null;
+        period = ?3600;
+        platform = null;
+        tree = null;
+      };
+    };
+    log = null;
+  };
+};
+
+// Create main inspector following main.mo pattern
+stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+transient let inspector = InspectMo.Init<system>({
+  manager = initManager;
+  initialState = inspector_migration_state;
+  args = ?{
+    allowAnonymous = ?true; // Allow for runtime testing
+    defaultMaxArgSize = ?1024;
+    authProvider = null;
+    rateLimit = null;
+    queryDefaults = null;
+    updateDefaults = null;
+    developmentMode = true;
+    auditLog = false;
+  };
+  pullEnvironment = ?(func() : InspectMo.Environment {
+    createEnvironment()
+  });
+  onInitialize = null;
+  onStorageChange = func(state: InspectMo.State) {
+    inspector_migration_state := state;
+  };
+});
+
+transient let defaultConfig : InspectMo.InitArgs = {
   allowAnonymous = ?true;
   defaultMaxArgSize = ?1024;
   authProvider = null;
@@ -32,27 +120,29 @@ let defaultConfig : InspectMo.InitArgs = {
 };
 
 func createTestInspector() : InspectMo.InspectMo {
-  InspectMo.InspectMo(
-    null, adminPrincipal, testPrincipal, ?defaultConfig, null,
-    func(state: InspectMo.State) {}
-  )
+  // For tests, we can just return the main inspector since it has proper environment
+  inspector();
 };
 
 // Helper function for default args
-let defaultSampleArgs : SampleArgs = { content = "default"; value = 0 };
+transient let defaultSampleArgs : SampleArgs = { content = "default"; value = 0 };
 
+public func runTests() : async () {
 await test("basic text size validation", func() : async () {
   Debug.print("Testing basic text size validation...");
   
-  let inspector = createTestInspector();
-  let sampleInspector = inspector.createInspector<Args>();
+  let mockInspectMo = createTestInspector();
+  let sampleInspector = mockInspectMo.createInspector<Args>();
   
   // Register method with text size validation (5-20 characters)
   sampleInspector.inspect(sampleInspector.createMethodGuardInfo<SampleArgs>(
     "sampleMethod",
     false,
     [
-      #textSize(func(args: SampleArgs) : Text { args.content }, ?5, ?20)
+      InspectMo.textSize<Args, SampleArgs>(
+        func(args: SampleArgs) : Text { args.content }, 
+        ?5, ?20
+      )
     ],
     func(args: Args) : SampleArgs {
       switch (args) {
@@ -108,15 +198,15 @@ await test("basic text size validation", func() : async () {
 await test("require auth validation", func() : async () {
   Debug.print("Testing require auth validation...");
   
-  let inspector = createTestInspector();
-  let authInspector = inspector.createInspector<Args>();
+  let mockInspectMo = createTestInspector();
+  let authInspector = mockInspectMo.createInspector<Args>();
   
   // Register method requiring authentication
   authInspector.inspect(authInspector.createMethodGuardInfo<SampleArgs>(
     "authMethod",
     false,
     [
-      #requireAuth
+      InspectMo.requireAuth<Args, SampleArgs>()
     ],
     func(args: Args) : SampleArgs {
       switch (args) {
@@ -172,15 +262,15 @@ await test("require auth validation", func() : async () {
 await test("custom check validation", func() : async () {
   Debug.print("Testing custom check validation...");
   
-  let inspector = createTestInspector();
-  let customInspector = inspector.createInspector<Args>();
+  let mockInspectMo = createTestInspector();
+  let customInspector = mockInspectMo.createInspector<Args>();
   
   // Register method with custom validation logic
   customInspector.inspect(customInspector.createMethodGuardInfo<SampleArgs>(
     "customMethod",
     false,
     [
-      #customCheck(func(args: InspectMo.CustomCheckArgs<Args>): InspectMo.GuardResult {
+      InspectMo.customCheck<Args, SampleArgs>(func(args: InspectMo.CustomCheckArgs<Args>): InspectMo.GuardResult {
         switch (args.args) {
           case (#sample(sampleArgs)) {
             if (sampleArgs.value > 100) {
@@ -272,4 +362,7 @@ await test("custom check validation", func() : async () {
   Debug.print("✓ Custom check validation tests passed");
 });
 
-Debug.print("🔬 SAMPLE TESTS COMPLETED! 🔬");
+  Debug.print("🔬 SAMPLE TESTS COMPLETED! 🔬");
+};
+
+}

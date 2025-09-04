@@ -6,6 +6,7 @@ import TimerToolLib "mo:timer-tool";
 import LogLib "mo:stable-local-log";
 import Result "mo:core/Result";
 import Map "mo:core/Map";
+import CandyTypes "mo:candy/types";
 
 // please do not import any types from your project outside migrations folder here
 // it can lead to bugs when you change those types later, because migration types should not be changed
@@ -55,6 +56,15 @@ module {
   // Validation Rule Types
   // ========================================
 
+  /// ICRC16 validation context for complex structure validation
+  public type ICRC16ValidationContext = {
+    allowedKeys: ?[Text];          // Allowed keys for record/map structures
+    requiredKeys: ?[Text];         // Required keys for record/map structures
+    maxDepth: ?Nat;               // Maximum nesting depth
+    allowedTypes: ?[Text];         // Allowed value types
+    customValidator: ?(CandyTypes.CandyShared -> Result.Result<(), Text>); // Custom validation function
+  };
+
   /// Boundary validation rules for inspect_message with typed accessor functions
   // M - Message type
   public type ValidationRule<T,M> = {
@@ -77,6 +87,23 @@ module {
     // Runtime validation with typed context
     #customCheck: (CustomCheckArgs<T>) -> GuardResult;          // Custom business logic with typed args
     #dynamicAuth: (DynamicAuthArgs<T>) -> GuardResult;          // Dynamic auth with typed args
+    
+    // ICRC16 CandyShared validation rules
+    #candyType: (accessor: M -> CandyTypes.CandyShared, expectedType: Text); // Validate CandyShared type
+    #candySize: (accessor: M -> CandyTypes.CandyShared, min: ?Nat, max: ?Nat); // Validate CandyShared serialized size
+    #candyDepth: (accessor: M -> CandyTypes.CandyShared, maxDepth: Nat); // Validate CandyShared nesting depth
+    #candyPattern: (accessor: M -> CandyTypes.CandyShared, pattern: Text); // Validate CandyShared against regex pattern
+    #candyRange: (accessor: M -> CandyTypes.CandyShared, min: ?Int, max: ?Int); // Validate CandyShared numeric range
+    #candyStructure: (accessor: M -> CandyTypes.CandyShared, context: ICRC16ValidationContext); // Validate CandyShared structure
+    #propertyExists: (accessor: M -> [CandyTypes.PropertyShared], propertyName: Text); // Check property exists in PropertyShared array
+    #propertyType: (accessor: M -> [CandyTypes.PropertyShared], propertyName: Text, expectedType: Text); // Validate property type
+    #propertySize: (accessor: M -> [CandyTypes.PropertyShared], propertyName: Text, min: ?Nat, max: ?Nat); // Validate property size
+    #arrayLength: (accessor: M -> CandyTypes.CandyShared, min: ?Nat, max: ?Nat); // Validate array length
+    #arrayItemType: (accessor: M -> CandyTypes.CandyShared, expectedType: Text); // Validate array item types
+    #mapKeyExists: (accessor: M -> CandyTypes.CandyShared, key: Text); // Check map key existence
+    #mapSize: (accessor: M -> CandyTypes.CandyShared, min: ?Nat, max: ?Nat); // Validate map size
+    #customCandyCheck: (accessor: M -> CandyTypes.CandyShared, validator: CandyTypes.CandyShared -> Result.Result<(), Text>); // Custom CandyShared validation
+    #nestedValidation: (accessor: M -> CandyTypes.CandyShared, rules: [ValidationRule<T,M>]); // Nested ICRC16 validation rules
   };
 
 
@@ -239,7 +266,7 @@ module {
   public type InspectArgs<T> = {
     methodName: Text;
     caller: Principal;
-    arg: Blob;
+    arg: Blob;               //should be empty for guards
     isQuery: Bool;           // Is this a query call?
     cycles: ?Nat;              // Available cycles
     deadline: ?Nat;            // Call timeout
@@ -321,7 +348,7 @@ module {
     advanced : ?{
       icrc85 : ICRC85Options;
     };
-    log: Log.Local_log;
+    log: ?Log.Local_log;
   };
 
   //do not remove the tt or icrc85 from this type

@@ -6,11 +6,106 @@ import Text "mo:core/Text";
 import Auth "../src/security/auth";
 import InspectMo "../src/core/inspector";
 import Map "mo:core/Map";
+import TimerTool "mo:timer-tool";
+import ClassPlusLib "mo:class-plus";
+
+persistent actor AuthTest {
 
 /// Test authentication and permission system with ErasedValidator integration
 
+// Timer tool setup following main.mo pattern
+transient let initManager = ClassPlusLib.ClassPlusInitializationManager(
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), 
+  false
+);
+stable var tt_migration_state: TimerTool.State = TimerTool.Migration.migration.initialState;
+
+transient let tt = TimerTool.Init<system>({
+  manager = initManager;
+  initialState = tt_migration_state;
+  args = null;
+  pullEnvironment = ?(func() : TimerTool.Environment {
+    {      
+      advanced = ?{
+        icrc85 = ?{
+          asset = null;
+          collector = null;
+          handler = null;
+          kill_switch = null;
+          period = ?3600;
+          platform = null;
+          tree = null;
+        };
+      };
+      reportExecution = null;
+      reportError = null;
+      syncUnsafe = null;
+      reportBatch = null;
+    };
+  });
+  onInitialize = ?(func (newClass: TimerTool.TimerTool) : async* () {
+    newClass.initialize<system>();
+  });
+  onStorageChange = func(state: TimerTool.State) {
+    tt_migration_state := state;
+  };
+});
+
+// Create proper environment for ICRC85 and TimerTool following main.mo pattern
+func createEnvironment() : InspectMo.Environment {
+  {
+    tt = tt();
+    advanced = ?{
+      icrc85 = ?{
+        asset = null;
+        collector = null;
+        handler = null;
+        kill_switch = null;
+        period = ?3600;
+        platform = null;
+        tree = null;
+      };
+    };
+    log = null;
+  };
+};
+
+// Create main inspector following main.mo pattern
+stable var inspector_migration_state: InspectMo.State = InspectMo.initialState();
+
+transient let inspector = InspectMo.Init<system>({
+  manager = initManager;
+  initialState = inspector_migration_state;
+  args = ?{
+    allowAnonymous = ?false;
+    defaultMaxArgSize = ?1024;
+    authProvider = null;
+    rateLimit = null;
+    queryDefaults = null;
+    updateDefaults = null;
+    developmentMode = true;
+    auditLog = false;
+  };
+  pullEnvironment = ?(func() : InspectMo.Environment {
+    createEnvironment()
+  });
+  onInitialize = null;
+  onStorageChange = func(state: InspectMo.State) {
+    inspector_migration_state := state;
+  };
+});
+
+func createTestInspector() : InspectMo.InspectMo {
+  // For tests, we can just return the main inspector since it has proper environment
+  inspector();
+};
+
+public func runTests() : async () {
 await test("ErasedValidator auth integration", func() : async () {
   Debug.print("Testing ErasedValidator with authentication...");
+  
+  let inspectMo = createTestInspector();
   
   // ErasedValidator setup with Args union pattern
   type UserProfileArgs = {
@@ -29,29 +124,7 @@ await test("ErasedValidator auth integration", func() : async () {
     #adminAction: AdminActionArgs;
   };
   
-  // Create inspector config without complex auth provider for now
-  let inspectConfig : InspectMo.InitArgs = {
-    allowAnonymous = ?false;
-    defaultMaxArgSize = ?1024;
-    authProvider = null; // Simplified for testing
-    rateLimit = null;
-    queryDefaults = null;
-    updateDefaults = null;
-    developmentMode = true;
-    auditLog = false;
-  };
-  
-  // Create mock InspectMo instance for testing
-  let mockInspectMo = InspectMo.InspectMo(
-    null, // stored state
-    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), // instantiator
-    Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai"), // canister
-    ?inspectConfig, // args
-    null, // environment
-    func(state: InspectMo.State) {} // storageChanged callback
-  );
-  
-  let inspector = mockInspectMo.createInspector<Args>();
+  let inspector = inspectMo.createInspector<Args>();
   
   // Register methods with authentication rules
   inspector.inspect(inspector.createMethodGuardInfo<UserProfileArgs>(
@@ -166,7 +239,6 @@ await test("ErasedValidator auth integration", func() : async () {
     };
   };
   
-  Debug.print("✓ ErasedValidator auth integration test passed");
 });
 
 await test("permission system basic functionality", func() : async () {
@@ -264,8 +336,7 @@ await test("role inheritance", func() : async () {
   Debug.print("✓ Admin session created");
   Debug.print("✓ Admin permissions: " # debug_show(session.permissions));
   
-  // Admin should have all permissions through inheritance
-  switch (permissionSystem.hasPermission(testPrincipal, "read")) {
+    switch (permissionSystem.hasPermission(testPrincipal, "read")) {
     case (#granted) Debug.print("✓ Admin has read permission (inherited)");
     case (_) assert false;
   };
@@ -345,10 +416,10 @@ await test("simple auth provider", func() : async () {
   let permissionSystem = Auth.PermissionSystem(config);
   let testPrincipal = Principal.fromText("rdmx6-jaaaa-aaaaa-aaadq-cai");
   
-  // Define roles
+  // Define a basic role
   let userRole : Auth.RoleDefinition = {
     name = "user";
-    permissions = ["read", "write"];
+    permissions = ["read"];
     inherits = [];
     metadata = [];
   };
@@ -386,3 +457,7 @@ await test("simple auth provider", func() : async () {
   
   Debug.print("✓ Simple auth provider test passed");
 });
+
+};
+
+}
